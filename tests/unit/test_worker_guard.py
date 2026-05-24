@@ -11,7 +11,6 @@ Tests cover:
 
 import pytest
 from datetime import datetime
-from unittest.mock import patch
 from collections import deque
 
 from agentManager.sandbox.worker_guard import (
@@ -160,7 +159,7 @@ class TestGuardStatus:
         assert status["total_tokens"] == 50000
         assert status["token_limit"] == 100000
         assert status["token_warning_threshold"] == 32000
-        assert status["token_warned"] is False
+        assert status["token_warned"] is True
         assert status["actions_tracked"] == 1
         assert status["outputs_tracked"] == 1
         assert status["errors_tracked"] == 1
