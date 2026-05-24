@@ -5,7 +5,7 @@ This module provides REST API endpoints for workflow and task management.
 
 from fastapi import FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from datetime import datetime
 import logging
 import uuid
@@ -98,7 +98,7 @@ class EventResponse(BaseModel):
 @app.get("/health", response_model=HealthResponse)
 def health_check():
     """Health check endpoint.
-    
+
     Returns:
         Health status and version information
     """
@@ -112,7 +112,7 @@ def health_check():
 @app.get("/status")
 def get_status():
     """Get system status.
-    
+
     Returns:
         Current system status including task counts
     """
@@ -132,13 +132,13 @@ def get_status():
 @app.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(request: TaskRequest):
     """Create a new task.
-    
+
     Args:
         request: Task creation request
-        
+
     Returns:
         Created task information
-        
+
     Raises:
         HTTPException: If task creation fails
     """
@@ -186,7 +186,6 @@ def create_task(request: TaskRequest):
 
         # Publish event
         event_bus.publish(Event(
-            event_id=str(uuid.uuid4()),
             event_type=EventType.TASK_CREATED,
             workflow_id="default",
             payload={"task_id": request.node_id, "task_type": request.task_type},
@@ -213,7 +212,7 @@ def create_task(request: TaskRequest):
 @app.get("/tasks/ready", response_model=ReadyTasksResponse)
 def get_ready_tasks():
     """Get all tasks ready for execution.
-    
+
     Returns:
         List of ready task IDs
     """
@@ -228,13 +227,13 @@ def get_ready_tasks():
 @app.get("/tasks/{task_id}", response_model=TaskResponse)
 def get_task(task_id: str):
     """Get task information.
-    
+
     Args:
         task_id: Task ID
-        
+
     Returns:
         Task information
-        
+
     Raises:
         HTTPException: If task not found
     """
@@ -257,13 +256,13 @@ def get_task(task_id: str):
 @app.post("/tasks/{task_id}/complete")
 def complete_task(task_id: str):
     """Mark task as completed.
-    
+
     Args:
         task_id: Task ID
-        
+
     Returns:
         Updated task status
-        
+
     Raises:
         HTTPException: If task not found
     """
@@ -275,16 +274,15 @@ def complete_task(task_id: str):
 
     try:
         dag_engine.update_node_status(task_id, TaskStatus.COMPLETED)
-        
+
         # Allow completion from any non-terminal state
         current_state = state_machine.get_state(task_id)
         if current_state not in [TaskState.COMPLETED, TaskState.BLOCKED_HITL]:
             state_machine.transition(task_id, TaskState.COMPLETED, reason="API request")
-        
+
         scheduler.mark_completed(task_id)
 
         event_bus.publish(Event(
-            event_id=str(uuid.uuid4()),
             event_type=EventType.TASK_COMPLETED,
             workflow_id="default",
             payload={"task_id": task_id},
@@ -303,14 +301,14 @@ def complete_task(task_id: str):
 @app.post("/tasks/{task_id}/fail")
 def fail_task(task_id: str, reason: str = ""):
     """Mark task as failed.
-    
+
     Args:
         task_id: Task ID
         reason: Failure reason
-        
+
     Returns:
         Updated task status
-        
+
     Raises:
         HTTPException: If task not found
     """
@@ -322,16 +320,15 @@ def fail_task(task_id: str, reason: str = ""):
 
     try:
         dag_engine.update_node_status(task_id, TaskStatus.FAILED)
-        
+
         # Allow failure from any non-terminal state
         current_state = state_machine.get_state(task_id)
         if current_state not in [TaskState.COMPLETED, TaskState.BLOCKED_HITL]:
             state_machine.transition(task_id, TaskState.FAILED, reason=reason)
-        
+
         scheduler.mark_failed(task_id)
 
         event_bus.publish(Event(
-            event_id=str(uuid.uuid4()),
             event_type=EventType.TASK_FAILED,
             workflow_id="default",
             payload={"task_id": task_id, "reason": reason},

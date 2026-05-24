@@ -8,6 +8,7 @@ from enum import Enum
 from typing import Dict, List, Callable, Optional
 from datetime import datetime
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +28,10 @@ class EventType(str, Enum):
 @dataclass
 class Event:
     """Represents a task event."""
-    event_id: str
     event_type: EventType
     workflow_id: str
     payload: Dict = field(default_factory=dict)
+    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
     def __hash__(self):
@@ -52,7 +53,7 @@ class EventBus:
         workflow_id: Optional[str] = None,
     ) -> None:
         """Subscribe to events.
-        
+
         Args:
             event_type: Type of event to subscribe to
             callback: Callback function to invoke
@@ -60,16 +61,16 @@ class EventBus:
         """
         # Create subscription key: "event_type:workflow_id" or "event_type:*"
         key = f"{event_type.value}:{workflow_id or '*'}"
-        
+
         if key not in self.subscribers:
             self.subscribers[key] = []
-        
+
         self.subscribers[key].append(callback)
         logger.info(f"Subscribed to {key}")
 
     def publish(self, event: Event) -> None:
         """Publish an event.
-        
+
         Args:
             event: Event to publish
         """
@@ -96,14 +97,14 @@ class EventBus:
         workflow_id: Optional[str] = None,
     ) -> None:
         """Unsubscribe from events.
-        
+
         Args:
             event_type: Type of event
             callback: Callback to remove
             workflow_id: Optional workflow ID
         """
         key = f"{event_type.value}:{workflow_id or '*'}"
-        
+
         if key in self.subscribers and callback in self.subscribers[key]:
             self.subscribers[key].remove(callback)
             logger.info(f"Unsubscribed from {key}")
@@ -114,22 +115,22 @@ class EventBus:
         workflow_id: Optional[str] = None,
     ) -> List[Event]:
         """Get events matching criteria.
-        
+
         Args:
             event_type: Optional event type filter
             workflow_id: Optional workflow ID filter
-            
+
         Returns:
             List of matching events
         """
         result = self.events
-        
+
         if event_type:
             result = [e for e in result if e.event_type == event_type]
-        
+
         if workflow_id:
             result = [e for e in result if e.workflow_id == workflow_id]
-        
+
         return result
 
     def clear(self) -> None:

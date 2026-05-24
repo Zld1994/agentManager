@@ -6,7 +6,7 @@ task dependencies and execution order.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Optional
 import networkx as nx
 import logging
 
@@ -53,27 +53,27 @@ class DAGEngine:
 
     def add_node(self, node: DAGNode) -> None:
         """Add a node to the DAG.
-        
+
         Args:
             node: DAGNode to add
-            
+
         Raises:
             ValueError: If node_id already exists
         """
         if node.node_id in self.nodes:
             raise ValueError(f"Node {node.node_id} already exists")
-        
+
         self.nodes[node.node_id] = node
         self.graph.add_node(node.node_id)
         logger.info(f"Added node: {node.node_id}")
 
     def add_edge(self, from_node: str, to_node: str) -> None:
         """Add dependency edge from from_node to to_node.
-        
+
         Args:
             from_node: Source node ID
             to_node: Target node ID
-            
+
         Raises:
             ValueError: If nodes don't exist or would create cycle
         """
@@ -98,7 +98,7 @@ class DAGEngine:
 
     def detect_deadlock(self) -> bool:
         """Detect if graph contains a cycle (deadlock).
-        
+
         Returns:
             True if cycle detected, False otherwise
         """
@@ -109,7 +109,7 @@ class DAGEngine:
 
     def get_ready_nodes(self) -> List[str]:
         """Get all nodes with no pending dependencies.
-        
+
         Returns:
             List of node IDs that are ready to execute
         """
@@ -117,38 +117,38 @@ class DAGEngine:
         for node_id, node in self.nodes.items():
             if node.status != TaskStatus.PENDING:
                 continue
-            
+
             # Check if all dependencies are completed
             all_deps_completed = all(
                 self.nodes[dep].status == TaskStatus.COMPLETED
                 for dep in node.dependencies
             )
-            
+
             if all_deps_completed:
                 ready.append(node_id)
-        
+
         return ready
 
     def topological_sort(self) -> List[str]:
         """Get topological sort order of nodes.
-        
+
         Returns:
             List of node IDs in topological order
-            
+
         Raises:
             ValueError: If graph contains cycle
         """
         if self.detect_deadlock():
             raise ValueError("Cannot sort: DAG contains cycle")
-        
+
         return list(nx.topological_sort(self.graph))
 
     def get_node(self, node_id: str) -> Optional[DAGNode]:
         """Get node by ID.
-        
+
         Args:
             node_id: Node ID to retrieve
-            
+
         Returns:
             DAGNode if found, None otherwise
         """
@@ -156,26 +156,26 @@ class DAGEngine:
 
     def update_node_status(self, node_id: str, status: TaskStatus) -> None:
         """Update node status.
-        
+
         Args:
             node_id: Node ID to update
             status: New status
-            
+
         Raises:
             ValueError: If node not found
         """
         if node_id not in self.nodes:
             raise ValueError(f"Node {node_id} not found")
-        
+
         self.nodes[node_id].status = status
         logger.info(f"Updated node {node_id} status to {status.value}")
 
     def get_dependencies(self, node_id: str) -> List[str]:
         """Get all dependencies of a node.
-        
+
         Args:
             node_id: Node ID
-            
+
         Returns:
             List of dependency node IDs
         """
@@ -185,10 +185,10 @@ class DAGEngine:
 
     def get_dependents(self, node_id: str) -> List[str]:
         """Get all nodes that depend on this node.
-        
+
         Args:
             node_id: Node ID
-            
+
         Returns:
             List of dependent node IDs
         """

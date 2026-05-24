@@ -5,7 +5,6 @@ integrated with the MemorySystem's MEDIUM_TERM layer (7-day TTL).
 """
 
 import json
-import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -16,7 +15,7 @@ from .memory_system import MemoryEntry, MemoryLayer, MemorySystem
 @dataclass
 class TaskRecord:
     """Represents a single task record with execution metadata.
-    
+
     Attributes:
         task_id: Unique identifier for the task
         session_id: Session identifier this task belongs to
@@ -40,7 +39,7 @@ class TaskRecord:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert TaskRecord to dictionary for serialization.
-        
+
         Returns:
             Dictionary representation of the task record
         """
@@ -52,10 +51,10 @@ class TaskRecord:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'TaskRecord':
         """Create TaskRecord from dictionary.
-        
+
         Args:
             data: Dictionary containing task record data
-            
+
         Returns:
             TaskRecord instance
         """
@@ -68,14 +67,14 @@ class TaskRecord:
 
 class TaskHistory:
     """Medium-term task history manager with MemorySystem integration.
-    
+
     Tracks task execution, status changes, and provides query capabilities
     for task analysis and debugging.
     """
 
     def __init__(self, memory_system: MemorySystem) -> None:
         """Initialize TaskHistory with a MemorySystem instance.
-        
+
         Args:
             memory_system: MemorySystem instance for persistence
         """
@@ -84,7 +83,7 @@ class TaskHistory:
 
     def record_task_start(self, session_id: str, task_id: str, task_name: str) -> None:
         """Record the start of a task.
-        
+
         Args:
             session_id: Session identifier
             task_id: Unique task identifier
@@ -108,7 +107,7 @@ class TaskHistory:
         error: Optional[str] = None
     ) -> None:
         """Record the completion of a task.
-        
+
         Args:
             task_id: Unique task identifier
             status: Final status (completed, failed, etc.)
@@ -127,10 +126,10 @@ class TaskHistory:
 
     def get_task_record(self, task_id: str) -> Optional[TaskRecord]:
         """Retrieve a task record by ID.
-        
+
         Args:
             task_id: Unique task identifier
-            
+
         Returns:
             TaskRecord if found, None otherwise
         """
@@ -146,10 +145,10 @@ class TaskHistory:
 
     def get_session_tasks(self, session_id: str) -> List[TaskRecord]:
         """Retrieve all tasks for a session.
-        
+
         Args:
             session_id: Session identifier
-            
+
         Returns:
             List of TaskRecord objects for the session
         """
@@ -168,17 +167,17 @@ class TaskHistory:
 
     def get_failed_tasks(self, session_id: Optional[str] = None) -> List[TaskRecord]:
         """Retrieve all failed tasks, optionally filtered by session.
-        
+
         Args:
             session_id: Optional session identifier to filter by
-            
+
         Returns:
             List of failed TaskRecord objects
         """
         query = "\"status\": \"failed"
         if session_id:
             query += f"\" AND \"session_id\": \"{session_id}"
-        
+
         entries = self.memory_system.search(
             query,
             layer=MemoryLayer.MEDIUM_TERM
@@ -195,10 +194,10 @@ class TaskHistory:
 
     def get_task_duration(self, task_id: str) -> Optional[float]:
         """Calculate task execution duration in seconds.
-        
+
         Args:
             task_id: Unique task identifier
-            
+
         Returns:
             Duration in seconds if task has ended, None otherwise
         """
@@ -213,18 +212,18 @@ class TaskHistory:
         session_id: Optional[str] = None
     ) -> List[TaskRecord]:
         """Search tasks by query string, optionally filtered by session.
-        
+
         Args:
             query: Search query string (searches task_name and metadata)
             session_id: Optional session identifier to filter by
-            
+
         Returns:
             List of matching TaskRecord objects
         """
         search_query = query
         if session_id:
             search_query += f" session_id:{session_id}"
-        
+
         entries = self.memory_system.search(
             search_query,
             layer=MemoryLayer.MEDIUM_TERM
@@ -240,7 +239,7 @@ class TaskHistory:
 
     def _persist_task(self, record: TaskRecord) -> None:
         """Persist a task record to memory system.
-        
+
         Args:
             record: TaskRecord to persist
         """

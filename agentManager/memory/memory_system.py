@@ -4,7 +4,7 @@ import json
 import sqlite3
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 class MemoryLayer(Enum):
     """Memory layer types with TTL configurations.
-    
+
     Attributes:
         SHORT_TERM: Current session memory (TTL: 1 hour)
         MEDIUM_TERM: Task history (TTL: 7 days)
@@ -27,7 +27,7 @@ class MemoryLayer(Enum):
 @dataclass
 class MemoryEntry:
     """Represents a single memory entry with metadata.
-    
+
     Attributes:
         entry_id: Unique identifier for the entry
         content: The actual memory content
@@ -52,7 +52,7 @@ class MemoryEntry:
 
     def is_expired(self) -> bool:
         """Check if entry has expired based on TTL.
-        
+
         Returns:
             True if entry has expired, False otherwise
         """
@@ -64,7 +64,7 @@ class MemoryEntry:
 
 class MemorySystem:
     """Multi-layer memory system with SQLite persistence and TTL management.
-    
+
     Provides storage, retrieval, search, and cleanup operations for memory entries
     across multiple layers with automatic expiration handling.
     """

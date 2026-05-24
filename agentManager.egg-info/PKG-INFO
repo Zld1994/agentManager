@@ -9,17 +9,6 @@ Description-Content-Type: text/markdown
 Requires-Dist: pydantic>=2.0
 Requires-Dist: python-dotenv>=1.0
 Requires-Dist: networkx>=3.0
-Requires-Dist: sqlalchemy>=2.0
-Requires-Dist: psycopg2-binary>=2.9
-Requires-Dist: alembic>=1.12
-Requires-Dist: redis>=5.0
-Requires-Dist: qdrant-client>=1.7
-Requires-Dist: minio>=7.1
-Requires-Dist: docker>=6.0
-Requires-Dist: prometheus-client>=0.17
-Requires-Dist: opentelemetry-api>=1.20
-Requires-Dist: opentelemetry-sdk>=1.20
-Requires-Dist: python-json-logger>=2.0
 Requires-Dist: fastapi>=0.104.0
 Requires-Dist: uvicorn>=0.24.0
 Provides-Extra: dev
@@ -31,3 +20,459 @@ Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.21; extra == "dev"
 Requires-Dist: pytest-cov>=4.0; extra == "dev"
 Requires-Dist: pytest-mock>=3.10; extra == "dev"
+
+# agentManager
+
+**AI Agent Orchestration Control Plane Prototype**
+
+> **Current Status**: Phase 1 Prototype  
+> **This project is NOT production-ready yet.**
+
+## 📋 Project Status
+
+agentManager 是一个 AI Agent 控制平面的原型实现。它提供了任务依赖管理、状态机、事件总线和调度器的基础框架。
+
+### ✅ Implemented (Phase 1)
+- In-memory DAG engine with cycle detection
+- Task state machine with emergency transitions
+- Event bus with wildcard subscriptions
+- Scheduler with conflict detection and backoff
+- FastAPI REST API (7 endpoints)
+- 66 unit tests (100% passing)
+
+### 🔄 Planned (Phase 2-4)
+- FastAPI service with full CRUD
+- PostgreSQL persistence
+- Redis Streams event bus
+- Qdrant vector memory
+- OpenTelemetry/Prometheus observability
+- Real L1-L4 repair workflow
+- Docker sandbox hardening
+- GitHub Actions CI/CD
+
+---
+
+## 🚀 Quick Start
+
+### Installation
+```bash
+# Clone repository
+git clone https://github.com/Zld1994/agentManager.git
+cd agentManager
+
+# Install in development mode
+pip install -e .
+
+# Install dev dependencies (optional)
+pip install -e ".[dev]"
+```
+
+### Run Tests
+```bash
+# Run all unit tests
+pytest tests/unit/ -v
+
+# Run specific test module
+pytest tests/unit/test_dag_engine.py -v
+
+# Run with coverage
+pytest tests/unit/ --cov=agentManager --cov-report=term-missing
+```
+
+### Start API Server
+```bash
+# Start FastAPI server
+python -m uvicorn agentManager.api:app --host 127.0.0.1 --port 8000
+
+# Access API documentation
+# Swagger UI: http://localhost:8000/docs
+# ReDoc: http://localhost:8000/redoc
+```
+
+### Test API Endpoints
+```bash
+# Health check
+curl http://127.0.0.1:8000/health
+
+# Get system status
+curl http://127.0.0.1:8000/status
+
+# Create a task
+curl -X POST http://127.0.0.1:8000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"node_id":"task_1","task_type":"data_processing"}'
+
+# Get ready tasks
+curl http://127.0.0.1:8000/tasks/ready
+
+# Complete a task
+curl -X POST http://127.0.0.1:8000/tasks/task_1/complete
+```
+
+---
+
+## 📁 Project Structure
+
+```
+agentManager/
+├── api.py                          # FastAPI application entry point
+├── engine/
+│   ├── __init__.py
+│   ├── dag.py                      # DAG engine (cycle detection fixed)
+│   ├── state_manager.py            # State machine (HITL fixed)
+│   ├── event_bus.py                # Event bus (wildcard fixed)
+│   └── scheduler.py                # Scheduler (deadlock fixed)
+├── memory/
+│   ├── memory_system.py
+│   └── task_history.py
+├── runtime/                        # Reserved for Phase 2
+│   └── __init__.py
+└── __init__.py
+
+monitoring/
+└── prometheus.yml                  # Prometheus configuration
+
+tests/
+├── unit/
+│   ├── test_dag_engine.py          # 13 tests
+│   ├── test_state_manager.py       # 12 tests
+│   ├── test_event_bus.py           #  9 tests
+│   ├── test_scheduler.py           # 17 tests
+│   └── test_api.py                 # 15 tests
+├── integration/                    # Reserved for Phase 2
+└── e2e/                            # Reserved for Phase 3
+
+pyproject.toml                       # Project configuration
+README.md                            # This file
+```
+
+---
+
+## 🔌 API Reference
+
+### Health & Status
+
+#### GET /health
+Health check endpoint.
+
+**Response** (200 OK):
+```json
+{
+  "status": "ok",
+  "version": "0.1.0",
+  "timestamp": "2026-05-24T04:00:00Z"
+}
+```
+
+#### GET /status
+Get system status.
+
+**Response** (200 OK):
+```json
+{
+  "total_tasks": 5,
+  "running_tasks": 2,
+  "completed_tasks": 1,
+  "dag_nodes": 5,
+  "events_published": 12
+}
+```
+
+### Task Management
+
+#### POST /tasks
+Create a new task.
+
+**Request Body**:
+```json
+{
+  "node_id": "task_1",
+  "task_type": "data_processing",
+  "dependencies": ["task_0"],
+  "metadata": {}
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "node_id": "task_1",
+  "task_type": "data_processing",
+  "status": "pending",
+  "dependencies": ["task_0"],
+  "metadata": {}
+}
+```
+
+**Errors**:
+- 400: Task already exists or dependency not found
+- 500: Internal server error
+
+#### GET /tasks/{task_id}
+Get task information.
+
+**Response** (200 OK):
+```json
+{
+  "node_id": "task_1",
+  "task_type": "data_processing",
+  "status": "pending",
+  "dependencies": ["task_0"],
+  "metadata": {}
+}
+```
+
+**Errors**:
+- 404: Task not found
+
+#### GET /tasks/ready
+Get all tasks ready for execution.
+
+**Response** (200 OK):
+```json
+{
+  "ready_tasks": ["task_1", "task_3"],
+  "total_tasks": 5,
+  "running_tasks": 2
+}
+```
+
+#### POST /tasks/{task_id}/complete
+Mark task as completed.
+
+**Response** (200 OK):
+```json
+{
+  "task_id": "task_1",
+  "status": "completed"
+}
+```
+
+**Errors**:
+- 404: Task not found
+- 500: State transition error
+
+#### POST /tasks/{task_id}/fail
+Mark task as failed.
+
+**Query Parameters**:
+- `reason` (optional): Failure reason
+
+**Response** (200 OK):
+```json
+{
+  "task_id": "task_1",
+  "status": "failed"
+}
+```
+
+**Errors**:
+- 404: Task not found
+- 500: State transition error
+
+---
+
+## 🧪 Testing
+
+### Test Coverage
+- **DAG Engine**: Node creation, edge addition, cycle detection, topological sort
+- **State Machine**: Initialization, transitions, history, emergency HITL
+- **Event Bus**: Subscribe, publish, filtering, wildcard subscriptions
+- **Scheduler**: Task scheduling, conflict detection, backoff mechanism
+- **API**: CRUD operations, error handling, integration flows
+
+### Test Statistics
+```
+test_dag_engine.py        13/13 ✅
+test_state_manager.py     12/12 ✅
+test_event_bus.py          9/9  ✅
+test_scheduler.py         17/17 ✅
+test_api.py               15/15 ✅
+────────────────────────────────
+Total                     66/66 ✅ (100%)
+```
+
+### Running Tests
+```bash
+# Run all tests
+pytest tests/unit/ -v
+
+# Run with coverage report
+pytest tests/unit/ --cov=agentManager --cov-report=html
+
+# Run specific test
+pytest tests/unit/test_dag_engine.py::TestDAGEngine::test_cycle_detection -v
+```
+
+---
+
+## 🏗️ Core Modules
+
+### DAG Engine (`agentManager/engine/dag.py`)
+
+Manages task dependencies and execution order.
+
+```python
+from agentManager.engine import DAGEngine, DAGNode, TaskStatus
+
+engine = DAGEngine()
+node = DAGNode(node_id="task_1", task_type="type1")
+engine.add_node(node)
+engine.add_edge("task_1", "task_2")  # Auto cycle detection
+ready = engine.get_ready_nodes()
+```
+
+**Key Features**:
+- Cycle detection using NetworkX
+- Topological sorting
+- Ready node discovery
+- Status tracking
+
+### State Machine (`agentManager/engine/state_manager.py`)
+
+Manages task lifecycle and state transitions.
+
+```python
+from agentManager.engine import StateMachine, TaskState
+
+sm = StateMachine()
+sm.initialize("task_1", TaskState.PENDING)
+sm.transition("task_1", TaskState.READY)
+sm.transition("task_1", TaskState.BLOCKED_HITL)  # Emergency transition
+```
+
+**Key Features**:
+- Valid state transitions
+- Emergency HITL from any non-terminal state
+- Transition history tracking
+- Terminal state detection
+
+### Event Bus (`agentManager/engine/event_bus.py`)
+
+Publishes and subscribes to task events.
+
+```python
+from agentManager.engine import EventBus, Event, EventType
+
+bus = EventBus()
+bus.subscribe(EventType.TASK_COMPLETED, callback)
+bus.subscribe(EventType.TASK_COMPLETED, callback, workflow_id=None)  # Global
+event = Event(event_id="e1", event_type=EventType.TASK_COMPLETED, workflow_id="wf1")
+bus.publish(event)
+```
+
+**Key Features**:
+- Workflow-specific subscriptions
+- Global wildcard subscriptions
+- Event filtering by type and workflow
+- Exception handling in callbacks
+
+### Scheduler (`agentManager/engine/scheduler.py`)
+
+Schedules and manages task execution.
+
+```python
+from agentManager.engine import SchedulerEngine
+
+scheduler = SchedulerEngine(max_concurrent_tasks=10)
+scheduler.add_task("task_1", priority=5, dependencies=["task_0"])
+scheduler.execute_scheduled_tasks()
+scheduler.mark_completed("task_1")
+```
+
+**Key Features**:
+- Priority-based scheduling
+- Dependency conflict detection
+- Backoff mechanism for retries
+- Concurrent task limit
+
+---
+
+## 🔧 Key Fixes (Phase 1)
+
+### 1. DAG Cycle Detection
+**Problem**: `topological_sort()` returns generator, cycle not detected if not consumed  
+**Fix**: Use `nx.is_directed_acyclic_graph()` for direct DAG check
+
+### 2. Scheduler Deadlock
+**Problem**: Conflicted tasks immediately re-queued, causing infinite loop  
+**Fix**: Deferred queue + backoff mechanism (5 second retry delay)
+
+### 3. StateMachine HITL
+**Problem**: Only `BLOCKED_REPAIR → BLOCKED_HITL` allowed  
+**Fix**: Allow emergency transitions from any non-terminal state
+
+### 4. EventBus Wildcard
+**Problem**: Global listeners not triggered  
+**Fix**: Publish triggers both exact and wildcard subscriptions
+
+---
+
+## 📈 Development Roadmap
+
+### Phase 1 ✅ (Complete)
+- [x] DAG engine with cycle detection
+- [x] State machine with HITL
+- [x] Event bus with wildcard subscriptions
+- [x] Scheduler with backoff
+- [x] FastAPI REST API
+- [x] 66 unit tests
+
+### Phase 2 (1-2 weeks)
+- [ ] PostgreSQL persistence
+- [ ] Redis Streams event bus
+- [ ] TaskExecutor execution loop
+- [ ] RecoveryEngine real recovery
+- [ ] Memory three-layer design
+- [ ] DefectRepair pipeline
+
+### Phase 3 (2-3 weeks)
+- [ ] Docker sandbox hardening
+- [ ] Secret management
+- [ ] Prometheus metrics
+- [ ] OpenTelemetry tracing
+- [ ] GitHub Actions CI/CD
+
+### Phase 4 (2-3 weeks)
+- [ ] Production deployment guide
+- [ ] Performance optimization
+- [ ] Security audit
+- [ ] Documentation completion
+
+---
+
+## 📚 Documentation
+
+- [Phase 1 Completion Report](./PHASE1_COMPLETION_REPORT.md) - Detailed Phase 1 summary
+- [Phase 1 Quick Reference](./PHASE1_QUICK_REFERENCE.md) - Quick API reference
+- [API Documentation](./docs/api.md) - Full API specification (coming in Phase 2)
+
+---
+
+## 🤝 Contributing
+
+This is a prototype project. Contributions are welcome for:
+- Bug fixes
+- Test improvements
+- Documentation
+- Performance optimization
+
+---
+
+## 📄 License
+
+MIT License - See LICENSE file for details
+
+---
+
+## 🔗 Links
+
+- **GitHub**: https://github.com/Zld1994/agentManager
+- **Issues**: https://github.com/Zld1994/agentManager/issues
+- **Discussions**: https://github.com/Zld1994/agentManager/discussions
+
+---
+
+**Last Updated**: 2026-05-24  
+**Status**: Phase 1 Complete, Phase 2 In Progress  
+**Test Coverage**: 66/66 ✅

@@ -31,7 +31,7 @@ class SchedulerEngine:
 
     def __init__(self, max_concurrent_tasks: int = 10):
         """Initialize scheduler.
-        
+
         Args:
             max_concurrent_tasks: Maximum concurrent tasks
         """
@@ -48,7 +48,7 @@ class SchedulerEngine:
         dependencies: Optional[List[str]] = None,
     ) -> None:
         """Add task to scheduler.
-        
+
         Args:
             task_id: Task ID
             priority: Task priority (higher = more urgent)
@@ -68,10 +68,10 @@ class SchedulerEngine:
 
     def detect_conflicts(self, task_id: str) -> List[str]:
         """Detect if task has unmet dependencies.
-        
+
         Args:
             task_id: Task ID to check
-            
+
         Returns:
             List of unmet dependency task IDs
         """
@@ -95,7 +95,7 @@ class SchedulerEngine:
 
     def execute_scheduled_tasks(self) -> None:
         """Execute ready tasks from queue.
-        
+
         This method processes the execution queue, respecting:
         - Max concurrent task limit
         - Dependency constraints
@@ -142,7 +142,7 @@ class SchedulerEngine:
 
     def mark_completed(self, task_id: str) -> None:
         """Mark task as completed.
-        
+
         Args:
             task_id: Task ID
         """
@@ -157,7 +157,7 @@ class SchedulerEngine:
 
     def mark_failed(self, task_id: str) -> None:
         """Mark task as failed.
-        
+
         Args:
             task_id: Task ID
         """
@@ -171,7 +171,7 @@ class SchedulerEngine:
 
     def get_running_tasks(self) -> List[str]:
         """Get list of running tasks.
-        
+
         Returns:
             List of running task IDs
         """
@@ -179,7 +179,7 @@ class SchedulerEngine:
 
     def get_completed_tasks(self) -> List[str]:
         """Get list of completed tasks.
-        
+
         Returns:
             List of completed task IDs
         """
@@ -187,10 +187,10 @@ class SchedulerEngine:
 
     def get_task_status(self, task_id: str) -> Optional[str]:
         """Get task status.
-        
+
         Args:
             task_id: Task ID
-            
+
         Returns:
             Task status or None if not found
         """
