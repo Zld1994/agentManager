@@ -23,35 +23,40 @@ WEAK_PASSWORDS = {
 }
 
 
-def validate_settings() -> None:
+def validate_settings(settings: dict[str, str] | None = None) -> None:
     """Validate application settings for security issues.
 
-    Checks for weak passwords in critical environment variables.
+    Checks for weak passwords in critical environment variables or provided settings.
     Raises RuntimeError if weak passwords are detected.
+
+    Args:
+        settings: Optional dict of settings to validate.
+                 If None, reads from environment variables.
 
     Raises:
         RuntimeError: If weak passwords are detected in settings
     """
+    if settings is None:
+        # Read from environment variables
+        settings = {
+            'POSTGRES_PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
+            'REDIS_PASSWORD': os.getenv('REDIS_PASSWORD', ''),
+            'MINIO_SECRET_KEY': os.getenv('MINIO_SECRET_KEY', ''),
+            'SECRET_KEY': os.getenv('SECRET_KEY', ''),
+            'QDRANT_API_KEY': os.getenv('QDRANT_API_KEY', ''),
+        }
+
     weak_found: Set[str] = set()
 
-    # Environment variables to check
-    settings_to_check = {
-        'POSTGRES_PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
-        'REDIS_PASSWORD': os.getenv('REDIS_PASSWORD', ''),
-        'MINIO_SECRET_KEY': os.getenv('MINIO_SECRET_KEY', ''),
-        'SECRET_KEY': os.getenv('SECRET_KEY', ''),
-        'QDRANT_API_KEY': os.getenv('QDRANT_API_KEY', ''),
-    }
-
-    for key, value in settings_to_check.items():
+    for key, value in settings.items():
         if value and value.lower() in WEAK_PASSWORDS:
             weak_found.add(key)
             logger.error(f"Weak password detected for {key}")
 
     if weak_found:
         raise RuntimeError(
-            f"Weak passwords detected in: {', '.join(sorted(weak_found))}. "
-            f"Please use strong passwords for production environments."
+            f"Weak passwords detected in: {', '.join(weak_found)}. "
+            f"Please set strong passwords in .env file."
         )
 
     logger.info("Settings validation passed")
