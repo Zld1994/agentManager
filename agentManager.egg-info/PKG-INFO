@@ -11,6 +11,7 @@ Requires-Dist: python-dotenv>=1.0
 Requires-Dist: networkx>=3.0
 Requires-Dist: fastapi>=0.104.0
 Requires-Dist: uvicorn>=0.24.0
+Requires-Dist: redis>=5.0.0
 Provides-Extra: dev
 Requires-Dist: black>=23.0; extra == "dev"
 Requires-Dist: isort>=5.12; extra == "dev"

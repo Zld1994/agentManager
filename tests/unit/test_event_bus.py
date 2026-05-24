@@ -18,12 +18,12 @@ class TestEventBus:
         bus.subscribe(EventType.TASK_COMPLETED, callback)
         
         event = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         bus.publish(event)
-        
+
         assert len(received_events) == 1
         assert received_events[0].event_id == "evt_1"
 
@@ -40,12 +40,12 @@ class TestEventBus:
         
         # Publish event for specific workflow
         event = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         bus.publish(event)
-        
+
         assert len(received_events) == 1
 
     def test_specific_workflow_subscription(self):
@@ -61,20 +61,20 @@ class TestEventBus:
         
         # Publish event for same workflow
         event1 = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         bus.publish(event1)
-        
+
         # Publish event for different workflow
         event2 = Event(
-            event_id="evt_2",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_2",
+            event_id="evt_2",
         )
         bus.publish(event2)
-        
+
         # Should only receive event for wf_1
         assert len(received_events) == 1
         assert received_events[0].event_id == "evt_1"
@@ -97,12 +97,12 @@ class TestEventBus:
         bus.subscribe(EventType.TASK_COMPLETED, wildcard_callback, workflow_id=None)
         
         event = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         bus.publish(event)
-        
+
         # Both should receive the event
         assert len(exact_events) == 1
         assert len(wildcard_events) == 1
@@ -119,32 +119,32 @@ class TestEventBus:
         bus.unsubscribe(EventType.TASK_COMPLETED, callback)
         
         event = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         bus.publish(event)
-        
+
         assert len(received_events) == 0
 
     def test_get_events_by_type(self):
         """Test filtering events by type."""
         bus = EventBus()
-        
+
         event1 = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         event2 = Event(
-            event_id="evt_2",
             event_type=EventType.TASK_FAILED,
             workflow_id="wf_1",
+            event_id="evt_2",
         )
-        
+
         bus.publish(event1)
         bus.publish(event2)
-        
+
         completed_events = bus.get_events(event_type=EventType.TASK_COMPLETED)
         assert len(completed_events) == 1
         assert completed_events[0].event_id == "evt_1"
@@ -152,21 +152,21 @@ class TestEventBus:
     def test_get_events_by_workflow(self):
         """Test filtering events by workflow."""
         bus = EventBus()
-        
+
         event1 = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         event2 = Event(
-            event_id="evt_2",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_2",
+            event_id="evt_2",
         )
-        
+
         bus.publish(event1)
         bus.publish(event2)
-        
+
         wf1_events = bus.get_events(workflow_id="wf_1")
         assert len(wf1_events) == 1
         assert wf1_events[0].event_id == "evt_1"
@@ -174,24 +174,24 @@ class TestEventBus:
     def test_clear_events(self):
         """Test clearing events and subscribers."""
         bus = EventBus()
-        
+
         def callback(event):
             pass
-        
+
         bus.subscribe(EventType.TASK_COMPLETED, callback)
-        
+
         event = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
         bus.publish(event)
-        
+
         assert len(bus.events) == 1
         assert len(bus.subscribers) > 0
-        
+
         bus.clear()
-        
+
         assert len(bus.events) == 0
         assert len(bus.subscribers) == 0
 
@@ -199,24 +199,24 @@ class TestEventBus:
         """Test that callback exceptions don't break event bus."""
         bus = EventBus()
         received_events = []
-        
+
         def failing_callback(event):
             raise Exception("Callback failed")
-        
+
         def good_callback(event):
             received_events.append(event)
-        
+
         bus.subscribe(EventType.TASK_COMPLETED, failing_callback)
         bus.subscribe(EventType.TASK_COMPLETED, good_callback)
-        
+
         event = Event(
-            event_id="evt_1",
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
+            event_id="evt_1",
         )
-        
+
         # Should not raise, despite failing callback
         bus.publish(event)
-        
+
         # Good callback should still be called
         assert len(received_events) == 1

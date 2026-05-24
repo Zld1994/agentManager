@@ -11,6 +11,10 @@ agentManager/engine/dag.py
 agentManager/engine/event_bus.py
 agentManager/engine/scheduler.py
 agentManager/engine/state_manager.py
+agentManager/engine/event_bus/__init__.py
+agentManager/engine/event_bus/base.py
+agentManager/engine/event_bus/in_memory.py
+agentManager/engine/event_bus/redis_stream.py
 agentManager/memory/__init__.py
 agentManager/memory/memory_system.py
 agentManager/memory/task_history.py
@@ -19,3 +23,4 @@ defect_repair/__init__.py
 defect_repair/classifier.py
 defect_repair/repair_engine.py
 scheduler/resource_manager.py
+tests/test_redis_stream_event_bus.py
