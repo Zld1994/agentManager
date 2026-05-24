@@ -8,8 +8,8 @@ and contextual analysis.
 import logging
 import re
 from enum import Enum
-from dataclasses import dataclass, field
-from typing import List, Tuple, Dict, Optional
+from dataclasses import dataclass
+from typing import List, Tuple, Dict
 
 from .repair_engine import RepairLevel
 
@@ -56,7 +56,7 @@ class DefectPattern:
 class DefectClassifier:
     """
     Classifies code defects into repair levels and severity categories.
-    
+
     Uses pattern matching and contextual analysis to determine appropriate
     repair strategies and priority levels.
     """
@@ -153,7 +153,7 @@ class DefectClassifier:
     def register_pattern(self, pattern: DefectPattern) -> None:
         """
         Register a custom defect pattern.
-        
+
         Args:
             pattern: DefectPattern to register
         """
@@ -164,7 +164,7 @@ class DefectClassifier:
     def get_all_patterns(self) -> List[DefectPattern]:
         """
         Get all registered patterns.
-        
+
         Returns:
             List of all DefectPattern objects
         """
@@ -173,10 +173,10 @@ class DefectClassifier:
     def extract_error_type(self, error_msg: str) -> str:
         """
         Extract error type from error message.
-        
+
         Args:
             error_msg: Error message string
-            
+
         Returns:
             Extracted error type name
         """
@@ -185,21 +185,17 @@ class DefectClassifier:
             if pattern.matches(error_msg):
                 return pattern.pattern_name
 
-        # Fallback: extract from common error format
-        match = re.search(r"(\w+Error):", error_msg)
-        if match:
-            return match.group(1)
-
-        return "UnknownError"
+        # Default to unknown if no pattern matches
+        return "unknown"
 
     def calculate_severity(self, error_type: str, impact_scope: str) -> SeverityLevel:
         """
         Calculate severity level based on error type and impact scope.
-        
+
         Args:
             error_type: Type of error detected
             impact_scope: Scope of impact (e.g., "local", "module", "system")
-            
+
         Returns:
             SeverityLevel indicating severity
         """
@@ -232,11 +228,11 @@ class DefectClassifier:
     ) -> Tuple[RepairLevel, SeverityLevel]:
         """
         Classify error and determine repair level and severity.
-        
+
         Args:
             error_msg: Error message from execution
             code_context: Relevant code snippet
-            
+
         Returns:
             Tuple of (RepairLevel, SeverityLevel)
         """
@@ -263,10 +259,10 @@ class DefectClassifier:
     def _determine_impact_scope(self, code_context: str) -> str:
         """
         Determine impact scope from code context.
-        
+
         Args:
             code_context: Code snippet to analyze
-            
+
         Returns:
             Impact scope: "local", "module", or "system"
         """
@@ -286,13 +282,13 @@ class DefectClassifier:
     ) -> int:
         """
         Calculate repair priority based on repair level and severity.
-        
+
         Priority scale: 1-100 (higher = more urgent)
-        
+
         Args:
             repair_level: Repair level classification
             severity: Severity level classification
-            
+
         Returns:
             Priority score (1-100)
         """

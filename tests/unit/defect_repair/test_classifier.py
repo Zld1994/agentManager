@@ -11,8 +11,6 @@ Tests cover:
 """
 
 import pytest
-import re
-from unittest.mock import Mock, patch
 
 from defect_repair.classifier import (
     DefectClassifier,
@@ -279,7 +277,7 @@ class TestExtractErrorType:
 
         error_type = classifier.extract_error_type(error_msg)
 
-        assert error_type == "UnknownError"
+        assert error_type == "unknown"
 
 
 class TestCalculateSeverity:
@@ -516,7 +514,7 @@ class TestPatternMatching:
 
         error_type = classifier.extract_error_type(error_msg)
 
-        assert error_type == "UnknownError"
+        assert error_type == "unknown"
 
     def test_classify_with_custom_pattern(self, classifier):
         """Test classification with custom registered pattern."""

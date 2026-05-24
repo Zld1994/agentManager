@@ -11,7 +11,7 @@ Tests cover:
 
 import pytest
 from datetime import datetime
-from unittest.mock import Mock, MagicMock, patch, call
+from unittest.mock import Mock
 from collections import defaultdict
 
 from defect_repair.repair_engine import (
