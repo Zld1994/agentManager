@@ -4,11 +4,14 @@ This module provides REST API endpoints for workflow and task management.
 """
 
 from fastapi import FastAPI, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 from datetime import datetime
 import logging
-import uuid
+import time
+
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
 from agentManager.engine.dag import DAGEngine, DAGNode, TaskStatus
 from agentManager.engine.state_manager import StateMachine, TaskState
@@ -31,6 +34,53 @@ dag_engine = DAGEngine()
 state_machine = StateMachine()
 event_bus = EventBus()
 scheduler = SchedulerEngine(max_concurrent_tasks=10)
+
+# ============================================================================
+# Prometheus Metrics
+# ============================================================================
+
+# Task metrics
+tasks_total = Counter(
+    'agentmanager_tasks_total',
+    'Total number of tasks created',
+    ['task_type']
+)
+
+task_duration_seconds = Histogram(
+    'agentmanager_task_duration_seconds',
+    'Task execution duration in seconds',
+    ['task_type'],
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0)
+)
+
+errors_total = Counter(
+    'agentmanager_errors_total',
+    'Total number of task errors',
+    ['error_type']
+)
+
+repairs_total = Counter(
+    'agentmanager_repairs_total',
+    'Total number of repairs performed',
+    ['repair_type']
+)
+
+# Task timing tracking (for duration calculation)
+_task_start_times: Dict[str, float] = {}
+
+
+# ============================================================================
+# Metrics Endpoint
+# ============================================================================
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint.
+
+    Returns:
+        Prometheus format metrics
+    """
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================
@@ -150,6 +200,10 @@ def create_task(request: TaskRequest):
                 detail=f"Task {request.node_id} already exists",
             )
 
+        # Track task creation metric
+        tasks_total.labels(task_type=request.task_type).inc()
+        _task_start_times[request.node_id] = time.time()
+
         # Create DAG node
         node = DAGNode(
             node_id=request.node_id,
@@ -203,6 +257,7 @@ def create_task(request: TaskRequest):
         raise
     except Exception as e:
         logger.error(f"Error creating task: {e}")
+        errors_total.labels(error_type="task_creation").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
@@ -273,6 +328,14 @@ def complete_task(task_id: str):
         )
 
     try:
+        # Calculate and record task duration
+        if task_id in _task_start_times:
+            duration = time.time() - _task_start_times[task_id]
+            node = dag_engine.get_node(task_id)
+            if node:
+                task_duration_seconds.labels(task_type=node.task_type).observe(duration)
+            del _task_start_times[task_id]
+
         dag_engine.update_node_status(task_id, TaskStatus.COMPLETED)
 
         # Allow completion from any non-terminal state
@@ -292,6 +355,7 @@ def complete_task(task_id: str):
 
     except Exception as e:
         logger.error(f"Error completing task: {e}")
+        errors_total.labels(error_type="task_completion").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
@@ -319,6 +383,13 @@ def fail_task(task_id: str, reason: str = ""):
         )
 
     try:
+        # Track error metric
+        errors_total.labels(error_type="task_failure").inc()
+
+        # Clean up timing tracking
+        if task_id in _task_start_times:
+            del _task_start_times[task_id]
+
         dag_engine.update_node_status(task_id, TaskStatus.FAILED)
 
         # Allow failure from any non-terminal state
@@ -338,6 +409,7 @@ def fail_task(task_id: str, reason: str = ""):
 
     except Exception as e:
         logger.error(f"Error failing task: {e}")
+        errors_total.labels(error_type="task_failure_handler").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
