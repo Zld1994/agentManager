@@ -5,11 +5,12 @@ This module provides REST API endpoints for workflow and task management.
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import time
+import re
 
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
@@ -21,6 +22,13 @@ from agentManager.engine.scheduler import SchedulerEngine
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
+
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -89,10 +97,41 @@ def metrics():
 
 class TaskRequest(BaseModel):
     """Request to create a task."""
-    node_id: str = Field(..., description="Unique task ID")
-    task_type: str = Field(..., description="Type of task")
+    node_id: str = Field(..., min_length=1, max_length=128, description="Unique task ID")
+    task_type: str = Field(..., min_length=1, max_length=64, description="Type of task")
     dependencies: List[str] = Field(default_factory=list, description="Dependency task IDs")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Task metadata")
+
+    @field_validator("node_id", "task_type")
+    @classmethod
+    def validate_identifier(cls, value: str) -> str:
+        """Validate task identifiers and task types."""
+        value = value.strip()
+        if not TASK_ID_PATTERN.fullmatch(value):
+            raise ValueError(
+                "must contain only letters, numbers, dots, colons, underscores, or hyphens"
+            )
+        return value
+
+    @field_validator("dependencies")
+    @classmethod
+    def validate_dependencies(cls, dependencies: List[str]) -> List[str]:
+        """Validate dependency IDs and remove duplicates while preserving order."""
+        seen = set()
+        normalized = []
+        for dep in dependencies:
+            dep = dep.strip()
+            if not dep:
+                raise ValueError("dependency IDs must not be empty")
+            if not TASK_ID_PATTERN.fullmatch(dep):
+                raise ValueError(
+                    "dependency IDs must contain only letters, numbers, dots, colons, "
+                    "underscores, or hyphens"
+                )
+            if dep not in seen:
+                seen.add(dep)
+                normalized.append(dep)
+        return normalized
 
 
 class TaskResponse(BaseModel):
@@ -155,7 +194,7 @@ def health_check():
     return {
         "status": "ok",
         "version": "0.1.0",
-        "timestamp": datetime.utcnow(),
+        "timestamp": utc_now(),
     }
 
 
@@ -166,13 +205,21 @@ def get_status():
     Returns:
         Current system status including task counts
     """
-    return {
-        "total_tasks": len(dag_engine.nodes),
-        "running_tasks": len(scheduler.running_tasks),
-        "completed_tasks": len(scheduler.completed_tasks),
-        "dag_nodes": len(dag_engine.nodes),
-        "events_published": len(event_bus.events),
-    }
+    try:
+        return {
+            "total_tasks": len(dag_engine.nodes),
+            "running_tasks": len(scheduler.running_tasks),
+            "completed_tasks": len(scheduler.completed_tasks),
+            "dag_nodes": len(dag_engine.nodes),
+            "events_published": len(event_bus.events),
+        }
+    except Exception as e:
+        logger.error(f"Error getting system status: {e}")
+        errors_total.labels(error_type="status").inc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get system status",
+        )
 
 
 # ============================================================================
@@ -200,9 +247,12 @@ def create_task(request: TaskRequest):
                 detail=f"Task {request.node_id} already exists",
             )
 
-        # Track task creation metric
-        tasks_total.labels(task_type=request.task_type).inc()
-        _task_start_times[request.node_id] = time.time()
+        for dep in request.dependencies:
+            if dep not in dag_engine.nodes:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Dependency not found: {dep}",
+                )
 
         # Create DAG node
         node = DAGNode(
@@ -215,11 +265,6 @@ def create_task(request: TaskRequest):
 
         # Add edges for dependencies
         for dep in request.dependencies:
-            if dep not in dag_engine.nodes:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Dependency not found: {dep}",
-                )
             try:
                 dag_engine.add_edge(dep, request.node_id)
             except ValueError as e:
@@ -227,6 +272,10 @@ def create_task(request: TaskRequest):
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=str(e),
                 )
+
+        # Track task creation metric after DAG mutations succeed.
+        tasks_total.labels(task_type=request.task_type).inc()
+        _task_start_times[request.node_id] = time.time()
 
         # Initialize state machine
         state_machine.initialize(request.node_id, TaskState.PENDING)
@@ -271,12 +320,20 @@ def get_ready_tasks():
     Returns:
         List of ready task IDs
     """
-    ready_tasks = dag_engine.get_ready_nodes()
-    return {
-        "ready_tasks": ready_tasks,
-        "total_tasks": len(dag_engine.nodes),
-        "running_tasks": len(scheduler.running_tasks),
-    }
+    try:
+        ready_tasks = dag_engine.get_ready_nodes()
+        return {
+            "ready_tasks": ready_tasks,
+            "total_tasks": len(dag_engine.nodes),
+            "running_tasks": len(scheduler.running_tasks),
+        }
+    except Exception as e:
+        logger.error(f"Error getting ready tasks: {e}")
+        errors_total.labels(error_type="ready_tasks").inc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get ready tasks",
+        )
 
 
 @app.get("/tasks/{task_id}", response_model=TaskResponse)
@@ -292,20 +349,30 @@ def get_task(task_id: str):
     Raises:
         HTTPException: If task not found
     """
-    node = dag_engine.get_node(task_id)
-    if not node:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Task {task_id} not found",
-        )
+    try:
+        node = dag_engine.get_node(task_id)
+        if not node:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task {task_id} not found",
+            )
 
-    return {
-        "node_id": node.node_id,
-        "task_type": node.task_type,
-        "status": node.status.value,
-        "dependencies": node.dependencies,
-        "metadata": node.metadata,
-    }
+        return {
+            "node_id": node.node_id,
+            "task_type": node.task_type,
+            "status": node.status.value,
+            "dependencies": node.dependencies,
+            "metadata": node.metadata,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting task {task_id}: {e}")
+        errors_total.labels(error_type="task_retrieval").inc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to get task",
+        )
 
 
 @app.post("/tasks/{task_id}/complete")

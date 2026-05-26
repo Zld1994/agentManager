@@ -6,10 +6,15 @@ This module manages task state transitions and ensures valid state flows.
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class TaskState(str, Enum):
@@ -30,7 +35,7 @@ class StateTransition:
     task_id: str
     from_state: TaskState
     to_state: TaskState
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     reason: str = ""
 
 

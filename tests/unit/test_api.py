@@ -91,6 +91,29 @@ class TestTaskCreation:
         })
         assert response.status_code == 400
         assert "not found" in response.json()["detail"]
+        assert "task_1" not in dag_engine.nodes
+
+    def test_create_task_rejects_invalid_node_id(self, client):
+        """Test node ID validation."""
+        response = client.post("/tasks", json={
+            "node_id": "bad id",
+            "task_type": "type1",
+        })
+        assert response.status_code == 422
+
+    def test_create_task_deduplicates_dependencies(self, client):
+        """Test dependency validation removes duplicates."""
+        client.post("/tasks", json={
+            "node_id": "task_1",
+            "task_type": "type1",
+        })
+        response = client.post("/tasks", json={
+            "node_id": "task_2",
+            "task_type": "type2",
+            "dependencies": ["task_1", "task_1"],
+        })
+        assert response.status_code == 201
+        assert response.json()["dependencies"] == ["task_1"]
 
     def test_create_task_with_cycle(self, client):
         """Test that creating cycle is prevented."""
@@ -180,6 +203,17 @@ class TestTaskRetrieval:
         data = response.json()
         assert "task_1" in data["ready_tasks"]
         assert "task_2" not in data["ready_tasks"]
+
+    def test_get_ready_tasks_handles_internal_error(self, client, monkeypatch):
+        """Test get ready tasks returns a controlled 500 response."""
+        def fail():
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(dag_engine, "get_ready_nodes", fail)
+
+        response = client.get("/tasks/ready")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to get ready tasks"
 
 
 class TestTaskCompletion:

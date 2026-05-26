@@ -6,11 +6,16 @@ This module provides an in-memory event bus for task lifecycle events.
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Callable, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 import uuid
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class EventType(str, Enum):
@@ -32,7 +37,7 @@ class Event:
     workflow_id: str
     payload: Dict = field(default_factory=dict)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
     def __hash__(self):
         return hash(self.event_id)
@@ -41,10 +46,11 @@ class Event:
 class EventBus:
     """In-memory event bus for task events."""
 
-    def __init__(self):
+    def __init__(self, max_events: int = 10000):
         """Initialize event bus."""
         self.subscribers: Dict[str, List[Callable]] = {}
         self.events: List[Event] = []
+        self.max_events = max_events
 
     def subscribe(
         self,
@@ -75,6 +81,8 @@ class EventBus:
             event: Event to publish
         """
         self.events.append(event)
+        if self.max_events > 0 and len(self.events) > self.max_events:
+            del self.events[:len(self.events) - self.max_events]
         logger.info(f"Published event: {event.event_type.value} for workflow {event.workflow_id}")
 
         # Trigger both exact and wildcard subscriptions

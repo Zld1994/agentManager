@@ -5,9 +5,14 @@ and metadata of a task execution throughout its lifecycle.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 from enum import Enum
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class ExecutionStatus(str, Enum):
@@ -46,7 +51,7 @@ class ExecutionContext:
 
     def mark_started(self) -> None:
         """Mark execution as started."""
-        self.start_time = datetime.utcnow()
+        self.start_time = utc_now()
         self.status = ExecutionStatus.IMPLEMENTING
 
     def mark_verifying(self) -> None:
@@ -59,7 +64,7 @@ class ExecutionContext:
         Args:
             result: Execution result data
         """
-        self.end_time = datetime.utcnow()
+        self.end_time = utc_now()
         self.status = ExecutionStatus.COMPLETED
         self.result = result
 
@@ -69,7 +74,7 @@ class ExecutionContext:
         Args:
             error: Error message
         """
-        self.end_time = datetime.utcnow()
+        self.end_time = utc_now()
         self.status = ExecutionStatus.FAILED
         self.error = error
 
@@ -86,7 +91,7 @@ class ExecutionContext:
         if self.start_time is None:
             return None
 
-        end = self.end_time or datetime.utcnow()
+        end = self.end_time or utc_now()
         return (end - self.start_time).total_seconds()
 
     def to_dict(self) -> Dict[str, Any]:

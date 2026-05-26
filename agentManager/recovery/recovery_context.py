@@ -7,7 +7,12 @@ all information needed for task recovery.
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class FailureType(str, Enum):
@@ -43,7 +48,7 @@ class RecoveryContext:
     event_id: Optional[str] = None
     retry_count: int = 0
     recovery_strategy: Optional[RecoveryStrategy] = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
     def __post_init__(self):
         """Validate recovery context after initialization."""
@@ -86,7 +91,7 @@ class RecoveryContext:
         Returns:
             RecoveryContext instance
         """
-        timestamp = data.get("timestamp", datetime.utcnow())
+        timestamp = data.get("timestamp", utc_now())
         if isinstance(timestamp, str):
             timestamp = datetime.fromisoformat(timestamp)
 

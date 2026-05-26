@@ -13,11 +13,16 @@ Tests cover:
 import pytest
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 
 from agentManager.engine.event_bus.base import Event, EventType
 from agentManager.engine.event_bus.redis_stream import RedisStreamEventBus
+
+
+def utc_now():
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture
@@ -45,7 +50,7 @@ def sample_event():
         workflow_id="workflow_123",
         payload={"task_id": "task_456", "status": "pending"},
         event_id="event_789",
-        timestamp=datetime.utcnow(),
+        timestamp=utc_now(),
     )
 
 
@@ -284,7 +289,7 @@ class TestRedisStreamEventBusEventReplay:
                             "event_type": "task_created",
                             "workflow_id": "workflow_123",
                             "event_id": "event_1",
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": utc_now().isoformat(),
                             "payload": "{}",
                         },
                     ),
@@ -313,7 +318,7 @@ class TestRedisStreamEventBusEventReplay:
                             "event_type": "task_created",
                             "workflow_id": "workflow_123",
                             "event_id": "event_1",
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": utc_now().isoformat(),
                             "payload": "{}",
                         },
                     ),
@@ -323,7 +328,7 @@ class TestRedisStreamEventBusEventReplay:
                             "event_type": "task_completed",
                             "workflow_id": "workflow_123",
                             "event_id": "event_2",
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": utc_now().isoformat(),
                             "payload": "{}",
                         },
                     ),
@@ -352,7 +357,7 @@ class TestRedisStreamEventBusEventReplay:
                             "event_type": "task_created",
                             "workflow_id": "workflow_123",
                             "event_id": "event_1",
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": utc_now().isoformat(),
                             "payload": "{}",
                         },
                     ),
@@ -362,7 +367,7 @@ class TestRedisStreamEventBusEventReplay:
                             "event_type": "task_created",
                             "workflow_id": "workflow_456",
                             "event_id": "event_2",
-                            "timestamp": datetime.utcnow().isoformat(),
+                            "timestamp": utc_now().isoformat(),
                             "payload": "{}",
                         },
                     ),
@@ -507,7 +512,7 @@ class TestRedisStreamEventBusEventDeserialization:
     @pytest.mark.asyncio
     async def test_deserialize_event(self, redis_event_bus):
         """Test deserializing event from Redis data."""
-        now = datetime.utcnow()
+        now = utc_now()
         data = {
             "event_type": "task_created",
             "workflow_id": "workflow_123",

@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 class InMemoryEventBus:
     """In-memory event bus for task events (synchronous)."""
 
-    def __init__(self):
+    def __init__(self, max_events: int = 10000):
         """Initialize event bus."""
         self.subscribers: Dict[str, List[Callable]] = {}
         self.events: List[Event] = []
+        self.max_events = max_events
 
     def subscribe(
         self,
@@ -47,6 +48,8 @@ class InMemoryEventBus:
             event: Event to publish
         """
         self.events.append(event)
+        if self.max_events > 0 and len(self.events) > self.max_events:
+            del self.events[:len(self.events) - self.max_events]
         logger.info(
             f"Published event: {event.event_type.value} for workflow {event.workflow_id}"
         )

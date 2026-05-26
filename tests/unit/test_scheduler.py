@@ -1,6 +1,7 @@
 """Unit tests for Scheduler Engine."""
 
 import pytest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 from agentManager.engine.scheduler import SchedulerEngine, ScheduledTask
 
@@ -192,3 +193,20 @@ class TestSchedulerEngine:
         # Immediate retry should not execute task_2
         scheduler.execute_scheduled_tasks()
         assert scheduler.tasks["task_2"].status == "pending"
+
+    def test_concurrent_add_and_execute_is_thread_safe(self):
+        """Test concurrent scheduler access does not corrupt shared state."""
+        scheduler = SchedulerEngine(max_concurrent_tasks=20)
+
+        def add_task(index):
+            scheduler.add_task(f"task_{index}", priority=index % 5)
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            list(executor.map(add_task, range(50)))
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            list(executor.map(lambda _: scheduler.execute_scheduled_tasks(), range(8)))
+
+        assert len(scheduler.tasks) == 50
+        assert len(scheduler.running_tasks) <= 20
+        assert len(set(scheduler.execution_queue)) == len(scheduler.execution_queue)

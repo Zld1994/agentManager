@@ -6,7 +6,7 @@ task recovery using various strategies based on failure types.
 
 import logging
 from typing import Dict, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 from agentManager.recovery.recovery_context import (
     RecoveryContext,
@@ -19,6 +19,11 @@ from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class RecoveryEngine:
@@ -368,7 +373,7 @@ class RecoveryEngine:
                 "failure_type": ctx.failure_type.value,
                 "error_msg": ctx.error_msg,
                 "retry_count": ctx.retry_count,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now().isoformat(),
             }
 
             logger.warning(f"Task escalated: {escalation_info}")
@@ -398,7 +403,7 @@ class RecoveryEngine:
             self.recovery_history[task_id] = []
 
         attempt = {
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": utc_now().isoformat(),
             "failure_type": ctx.failure_type.value,
             "error_msg": ctx.error_msg,
             "retry_count": ctx.retry_count,
@@ -440,7 +445,7 @@ class RecoveryEngine:
                 "failure_type": ctx.failure_type.value,
                 "success": success,
                 "retry_count": ctx.retry_count,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": utc_now().isoformat(),
             }
 
             if error_msg:

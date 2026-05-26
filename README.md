@@ -420,8 +420,9 @@ scheduler.mark_completed("task_1")
 
 ## 📚 Documentation
 
-- [Phase 1 Completion Report](./PHASE1_COMPLETION_REPORT.md) - Detailed Phase 1 summary
-- [Phase 1 Quick Reference](./PHASE1_QUICK_REFERENCE.md) - Quick API reference
+- [Reports Archive](./docs/reports/README.md) - Historical phase, completion, and test reports
+- [Phase 1 Completion Report](./docs/reports/PHASE1_COMPLETION_REPORT.md) - Detailed Phase 1 summary
+- [Phase 1 Quick Reference](./docs/reports/PHASE1_QUICK_REFERENCE.md) - Quick API reference
 - [API Documentation](./docs/api.md) - Full API specification (coming in Phase 2)
 
 ---

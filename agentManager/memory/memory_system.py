@@ -5,10 +5,16 @@ import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from threading import RLock
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class MemoryLayer(Enum):
@@ -42,7 +48,7 @@ class MemoryEntry:
     tags: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
     entry_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
     ttl_seconds: Optional[int] = None
 
     def __post_init__(self) -> None:
@@ -59,7 +65,14 @@ class MemoryEntry:
         if self.ttl_seconds is None:
             return False
         expiry_time = self.timestamp + timedelta(seconds=self.ttl_seconds)
-        return datetime.utcnow() > expiry_time
+        return utc_now() > _ensure_aware(expiry_time)
+
+
+def _ensure_aware(value: datetime) -> datetime:
+    """Treat naive datetimes as UTC for backward compatibility."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value
 
 
 class MemorySystem:
@@ -84,12 +97,14 @@ class MemorySystem:
 
         self.backend = storage_backend
         self.db_path = Path(db_path or "memory.db")
+        self._lock = RLock()
+        self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._init_db()
 
     def _init_db(self) -> None:
         """Initialize SQLite database schema with required tables and indexes."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+        with self._lock:
+            self._conn.execute("""
                 CREATE TABLE IF NOT EXISTS memory_entries (
                     entry_id TEXT PRIMARY KEY,
                     content TEXT NOT NULL,
@@ -100,13 +115,35 @@ class MemorySystem:
                     metadata TEXT NOT NULL
                 )
             """)
-            conn.execute("""
+            self._conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_layer ON memory_entries(layer)
             """)
-            conn.execute("""
+            self._conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_timestamp ON memory_entries(timestamp)
             """)
-            conn.commit()
+            self._conn.commit()
+
+    def close(self) -> None:
+        """Close the underlying SQLite connection."""
+        with self._lock:
+            if self._conn is not None:
+                self._conn.close()
+                self._conn = None
+
+    def __enter__(self) -> "MemorySystem":
+        """Return this memory system as a context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Close the memory system on context manager exit."""
+        self.close()
+
+    def __del__(self) -> None:
+        """Best-effort cleanup for callers that do not close explicitly."""
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def store(self, entry: MemoryEntry) -> str:
         """Store a memory entry in the system.
@@ -117,8 +154,8 @@ class MemorySystem:
         Returns:
             The entry_id of the stored entry
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
+        with self._lock:
+            self._conn.execute("""
                 INSERT OR REPLACE INTO memory_entries
                 (entry_id, content, layer, timestamp, ttl_seconds, tags, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -131,7 +168,7 @@ class MemorySystem:
                 json.dumps(entry.tags),
                 json.dumps(entry.metadata)
             ))
-            conn.commit()
+            self._conn.commit()
         return entry.entry_id
 
     def retrieve(self, entry_id: str) -> Optional[MemoryEntry]:
@@ -143,8 +180,8 @@ class MemorySystem:
         Returns:
             MemoryEntry if found and not expired, None otherwise
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+        with self._lock:
+            cursor = self._conn.execute("""
                 SELECT content, layer, timestamp, ttl_seconds, tags, metadata
                 FROM memory_entries WHERE entry_id = ?
             """, (entry_id,))
@@ -158,7 +195,7 @@ class MemorySystem:
             entry_id=entry_id,
             content=content,
             layer=MemoryLayer[layer],
-            timestamp=datetime.fromtimestamp(timestamp),
+            timestamp=datetime.fromtimestamp(timestamp, tz=timezone.utc),
             ttl_seconds=ttl_seconds,
             tags=json.loads(tags),
             metadata=json.loads(metadata)
@@ -180,15 +217,15 @@ class MemorySystem:
         Returns:
             List of matching MemoryEntry objects (excluding expired entries)
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with self._lock:
             if layer:
-                cursor = conn.execute("""
+                cursor = self._conn.execute("""
                     SELECT entry_id, content, layer, timestamp, ttl_seconds, tags, metadata
                     FROM memory_entries
                     WHERE layer = ? AND content LIKE ?
                 """, (layer.name, f"%{query}%"))
             else:
-                cursor = conn.execute("""
+                cursor = self._conn.execute("""
                     SELECT entry_id, content, layer, timestamp, ttl_seconds, tags, metadata
                     FROM memory_entries WHERE content LIKE ?
                 """, (f"%{query}%",))
@@ -202,7 +239,7 @@ class MemorySystem:
                 entry_id=entry_id,
                 content=content,
                 layer=MemoryLayer[layer_name],
-                timestamp=datetime.fromtimestamp(timestamp),
+                timestamp=datetime.fromtimestamp(timestamp, tz=timezone.utc),
                 ttl_seconds=ttl_seconds,
                 tags=json.loads(tags),
                 metadata=json.loads(metadata)
@@ -219,8 +256,8 @@ class MemorySystem:
             Number of entries deleted
         """
         current_time = time.time()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+        with self._lock:
+            cursor = self._conn.execute("""
                 SELECT entry_id, timestamp, ttl_seconds FROM memory_entries
                 WHERE ttl_seconds IS NOT NULL
             """)
@@ -250,8 +287,8 @@ class MemorySystem:
                 - total_size_bytes: Total size of content in bytes
                 - ttl_seconds: TTL configuration for layer
         """
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.execute("""
+        with self._lock:
+            cursor = self._conn.execute("""
                 SELECT COUNT(*), SUM(LENGTH(content))
                 FROM memory_entries WHERE layer = ?
             """, (layer.name,))
@@ -271,6 +308,6 @@ class MemorySystem:
         Args:
             entry_id: The ID of the entry to delete
         """
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("DELETE FROM memory_entries WHERE entry_id = ?", (entry_id,))
-            conn.commit()
+        with self._lock:
+            self._conn.execute("DELETE FROM memory_entries WHERE entry_id = ?", (entry_id,))
+            self._conn.commit()

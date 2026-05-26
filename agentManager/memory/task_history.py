@@ -6,10 +6,15 @@ integrated with the MemorySystem's MEDIUM_TERM layer (7-day TTL).
 
 import json
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from .memory_system import MemoryEntry, MemoryLayer, MemorySystem
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 @dataclass
@@ -94,7 +99,7 @@ class TaskHistory:
             session_id=session_id,
             task_name=task_name,
             status="running",
-            start_time=datetime.utcnow()
+            start_time=utc_now()
         )
         self._task_cache[task_id] = record
         self._persist_task(record)
@@ -119,7 +124,7 @@ class TaskHistory:
             return
 
         record.status = status
-        record.end_time = datetime.utcnow()
+        record.end_time = utc_now()
         record.result = result
         record.error = error
         self._persist_task(record)

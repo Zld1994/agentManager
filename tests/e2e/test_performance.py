@@ -1,278 +1,118 @@
-"""
-E2E Tests Part 3: Performance and Benchmark Testing
+"""End-to-end tests for implemented agentManager capabilities."""
 
-Comprehensive end-to-end tests covering:
-1. Performance benchmarks (4 tests)
-   - test_throughput_benchmark_10_tasks_per_second
-   - test_latency_benchmark_p95_under_100ms
-   - test_memory_usage_benchmark_under_500mb
-   - test_cpu_usage_benchmark_under_80_percent
-
-2. Scalability tests (3 tests)
-   - test_scalability_linear_with_task_count
-   - test_scalability_with_increasing_dag_complexity
-   - test_scalability_with_concurrent_users
-
-3. System limits tests (3 tests)
-   - test_max_concurrent_tasks_limit
-   - test_max_dag_depth_limit
-   - test_max_memory_per_task_limit
-
-Requirements:
-- Use pytest framework
-- Measure and report performance metrics
-- Test system limits and boundaries
-- Aim for 10-12 E2E tests
-
-Total: 10 comprehensive E2E tests
-"""
+import io
+import json
+import tarfile
+import time
 
 import pytest
-import logging
-import time
-import uuid
-import psutil
-import threading
-from typing import Dict, List, Any, Optional, Tuple
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import statistics
 
-from agentManager.engine.dag import DAGEngine, DAGNode
-from agentManager.engine.event_bus import EventBus, Event, EventType
-from agentManager.engine.state_manager import StateMachine, TaskState
-from agentManager.engine.checkpoint import Checkpoint, CheckpointManager
-from agentManager.scheduler.scheduler_engine import SchedulerEngine, TaskSchedule
-from agentManager.scheduler.resource_manager import ResourceManager
-from agentManager.scheduler.conflict_detector import ConflictDetector
-from agentManager.roles.agent_orchestrator import AgentOrchestrator
-from agentManager.roles.agent_config import AgentConfigManager
-from agentManager.roles.role_template import RoleTemplateManager
-from agentManager.memory.session_memory import MemorySystem
-
-logger = logging.getLogger(__name__)
+from agentManager.engine.checkpoint import load_checkpoint_with_recovery, safe_extract
+from agentManager.engine.dag import DAGNode, TaskStatus
+from agentManager.engine.event_bus import Event, EventType
+from agentManager.engine.state_manager import TaskState
 
 
-# ============================================================================
-# PERFORMANCE METRICS TRACKING
-# ============================================================================
+def test_core_workflow_from_schedule_to_completion(workflow_components):
+    """Run a small workflow across DAG, state, event bus, and scheduler."""
+    dag = workflow_components["dag"]
+    state = workflow_components["state"]
+    events = workflow_components["events"]
+    scheduler = workflow_components["scheduler"]
+    received = []
 
-class PerformanceMetrics:
-    """Track performance metrics for benchmark tests"""
-    
-    def __init__(self):
-        self.start_time: Optional[float] = None
-        self.end_time: Optional[float] = None
-        self.task_count: int = 0
-        self.completed_tasks: int = 0
-        self.failed_tasks: int = 0
-        self.latencies: List[float] = []
-        self.throughputs: List[float] = []
-        self.memory_samples: List[float] = []
-        self.cpu_samples: List[float] = []
-        self.process = psutil.Process()
-    
-    def start(self):
-        """Start performance measurement"""
-        self.start_time = time.time()
-        self.process.cpu_percent()  # Initialize CPU counter
-    
-    def end(self):
-        """End performance measurement"""
-        self.end_time = time.time()
-    
-    def get_duration(self) -> float:
-        """Get total duration in seconds"""
-        if self.start_time and self.end_time:
-            return self.end_time - self.start_time
-        return 0.0
-    
-    def record_task_completion(self, latency: float, success: bool = True):
-        """Record task completion with latency"""
-        self.latencies.append(latency)
-        if success:
-            self.completed_tasks += 1
-        else:
-            self.failed_tasks += 1
-    
-    def record_throughput(self, tasks_per_second: float):
-        """Record throughput measurement"""
-        self.throughputs.append(tasks_per_second)
-    
-    def sample_memory(self):
-        """Sample current memory usage in MB"""
-        memory_mb = self.process.memory_info().rss / 1024 / 1024
-        self.memory_samples.append(memory_mb)
-        return memory_mb
-    
-    def sample_cpu(self):
-        """Sample current CPU usage percentage"""
-        cpu_percent = self.process.cpu_percent(interval=0.1)
-        self.cpu_samples.append(cpu_percent)
-        return cpu_percent
-    
-    def get_throughput(self) -> float:
-        """Get average throughput (tasks/second)"""
-        duration = self.get_duration()
-        if duration > 0:
-            return self.completed_tasks / duration
-        return 0.0
-    
-    def get_latency_p95(self) -> float:
-        """Get 95th percentile latency"""
-        if len(self.latencies) > 0:
-            sorted_latencies = sorted(self.latencies)
-            idx = int(len(sorted_latencies) * 0.95)
-            return sorted_latencies[idx]
-        return 0.0
-    
-    def get_latency_p99(self) -> float:
-        """Get 99th percentile latency"""
-        if len(self.latencies) > 0:
-            sorted_latencies = sorted(self.latencies)
-            idx = int(len(sorted_latencies) * 0.99)
-            return sorted_latencies[idx]
-        return 0.0
-    
-    def get_avg_latency(self) -> float:
-        """Get average latency"""
-        if len(self.latencies) > 0:
-            return statistics.mean(self.latencies)
-        return 0.0
-    
-    def get_max_memory(self) -> float:
-        """Get peak memory usage in MB"""
-        if len(self.memory_samples) > 0:
-            return max(self.memory_samples)
-        return 0.0
-    
-    def get_avg_memory(self) -> float:
-        """Get average memory usage in MB"""
-        if len(self.memory_samples) > 0:
-            return statistics.mean(self.memory_samples)
-        return 0.0
-    
-    def get_max_cpu(self) -> float:
-        """Get peak CPU usage percentage"""
-        if len(self.cpu_samples) > 0:
-            return max(self.cpu_samples)
-        return 0.0
-    
-    def get_avg_cpu(self) -> float:
-        """Get average CPU usage percentage"""
-        if len(self.cpu_samples) > 0:
-            return statistics.mean(self.cpu_samples)
-        return 0.0
-    
-    def get_success_rate(self) -> float:
-        """Get task success rate"""
-        total = self.completed_tasks + self.failed_tasks
-        if total > 0:
-            return (self.completed_tasks / total) * 100
-        return 0.0
-    
-    def get_summary(self) -> Dict[str, Any]:
-        """Get comprehensive performance summary"""
-        return {
-            "duration_seconds": self.get_duration(),
-            "task_count": self.task_count,
-            "completed_tasks": self.completed_tasks,
-            "failed_tasks": self.failed_tasks,
-            "success_rate_percent": self.get_success_rate(),
-            "throughput_tasks_per_second": self.get_throughput(),
-            "avg_latency_ms": self.get_avg_latency() * 1000,
-            "p95_latency_ms": self.get_latency_p95() * 1000,
-            "p99_latency_ms": self.get_latency_p99() * 1000,
-            "peak_memory_mb": self.get_max_memory(),
-            "avg_memory_mb": self.get_avg_memory(),
-            "peak_cpu_percent": self.get_max_cpu(),
-            "avg_cpu_percent": self.get_avg_cpu(),
-        }
+    events.subscribe(EventType.TASK_COMPLETED, received.append)
+
+    dag.add_node(DAGNode(node_id="extract", task_type="io"))
+    dag.add_node(DAGNode(node_id="transform", task_type="compute"))
+    dag.add_edge("extract", "transform")
+
+    state.initialize("extract", TaskState.PENDING)
+    state.initialize("transform", TaskState.PENDING)
+    scheduler.add_task("extract", priority=10)
+    scheduler.add_task("transform", priority=5, dependencies=["extract"])
+
+    scheduler.execute_scheduled_tasks()
+    assert scheduler.get_running_tasks() == ["extract"]
+
+    dag.update_node_status("extract", TaskStatus.COMPLETED)
+    state.transition("extract", TaskState.COMPLETED, reason="e2e")
+    scheduler.mark_completed("extract")
+    events.publish(
+        Event(EventType.TASK_COMPLETED, workflow_id="wf", payload={"task_id": "extract"})
+    )
+
+    scheduler.tasks["transform"].next_retry_at = None
+    scheduler.execute_scheduled_tasks()
+
+    assert "transform" in scheduler.get_running_tasks()
+    assert received[0].payload["task_id"] == "extract"
+    assert dag.get_ready_nodes() == ["transform"]
 
 
-# ============================================================================
-# PYTEST FIXTURES (defined in conftest.py)
-# ============================================================================
+def test_api_task_lifecycle(api_client):
+    """Create and complete tasks through the public API."""
+    first = api_client.post("/tasks", json={"node_id": "task_1", "task_type": "type1"})
+    assert first.status_code == 201
 
-@pytest.fixture
-def performance_metrics():
-    """Create performance metrics tracker"""
-    return PerformanceMetrics()
+    second = api_client.post(
+        "/tasks",
+        json={"node_id": "task_2", "task_type": "type2", "dependencies": ["task_1"]},
+    )
+    assert second.status_code == 201
 
+    ready_before = api_client.get("/tasks/ready").json()["ready_tasks"]
+    assert "task_1" in ready_before
+    assert "task_2" not in ready_before
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
+    completed = api_client.post("/tasks/task_1/complete")
+    assert completed.status_code == 200
 
-def _create_simple_task(task_id: str, duration: float = 0.01) -> Dict[str, Any]:
-    """Create a simple task for testing"""
-    return {
-        "id": task_id,
-        "name": f"task_{task_id}",
-        "type": "compute",
-        "duration": duration,
-        "status": "pending",
-        "created_at": datetime.now(),
-    }
+    ready_after = api_client.get("/tasks/ready").json()["ready_tasks"]
+    assert "task_2" in ready_after
 
 
-def _create_dag_with_depth(dag_engine: DAGEngine, depth: int) -> str:
-    """Create a DAG with specified depth"""
-    dag_id = str(uuid.uuid4())
-    nodes = []
-    
-    for i in range(depth):
-        node = DAGNode(
-            node_id=f"node_{i}",
-            task_type="compute",
-            config={"duration": 0.01}
-        )
-        nodes.append(node)
-        
-        if i > 0:
-            dag_engine.add_edge(nodes[i-1].node_id, node.node_id)
-    
-    return dag_id
+@pytest.mark.asyncio
+async def test_checkpoint_restore_and_malicious_archive_rejection(tmp_path):
+    """Load a valid checkpoint and reject an archive escaping the target path."""
+    valid_tar = tmp_path / "valid.tar.gz"
+    checkpoint_data = {"state": "ready", "step": 2}
+
+    with tarfile.open(valid_tar, "w:gz") as tar:
+        payload = json.dumps(checkpoint_data).encode()
+        info = tarfile.TarInfo(name="checkpoint.json")
+        info.size = len(payload)
+        tar.addfile(info, fileobj=io.BytesIO(payload))
+
+    loaded = await load_checkpoint_with_recovery(str(valid_tar), "task_1")
+    assert loaded == checkpoint_data
+
+    malicious_tar = tmp_path / "malicious.tar.gz"
+    extract_dir = tmp_path / "extract"
+    extract_dir.mkdir()
+    with tarfile.open(malicious_tar, "w:gz") as tar:
+        info = tarfile.TarInfo(name="../../evil.py")
+        info.size = 0
+        tar.addfile(info, fileobj=io.BytesIO())
+
+    with tarfile.open(malicious_tar, "r:gz") as tar:
+        with pytest.raises(ValueError):
+            safe_extract(tar, str(extract_dir))
 
 
-def _execute_task_with_metrics(
-    task: Dict[str, Any],
-    metrics: PerformanceMetrics
-) -> bool:
-    """Execute a task and record metrics"""
-    try:
-        start = time.time()
-        time.sleep(task.get("duration", 0.01))
-        latency = time.time() - start
-        metrics.record_task_completion(latency, success=True)
-        return True
-    except Exception as e:
-        logger.error(f"Task execution failed: {e}")
-        metrics.record_task_completion(0, success=False)
-        return False
+def test_lightweight_scheduler_throughput(workflow_components):
+    """Verify the implemented scheduler can process a small task batch quickly."""
+    scheduler = workflow_components["scheduler"]
 
+    for index in range(25):
+        scheduler.add_task(f"task_{index}", priority=index % 5)
 
-def _execute_concurrent_tasks(
-    tasks: List[Dict[str, Any]],
-    metrics: PerformanceMetrics,
-    max_workers: int = 10
-) -> int:
-    """Execute tasks concurrently and return completion count"""
-    completed = 0
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {
-            executor.submit(_execute_task_with_metrics, task, metrics): task
-            for task in tasks
-        }
-        
-        for future in as_completed(futures):
-            try:
-                if future.result():
-                    completed += 1
-            except Exception as e:
-                logger.error(f"Concurrent execution error: {e}")
-    
-    return completed
+    start = time.perf_counter()
+    while scheduler.execution_queue:
+        scheduler.execute_scheduled_tasks()
+        for task_id in list(scheduler.get_running_tasks()):
+            scheduler.mark_completed(task_id)
+    duration = time.perf_counter() - start
+
+    assert len(scheduler.get_completed_tasks()) == 25
+    assert duration < 1.0

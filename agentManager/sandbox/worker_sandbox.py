@@ -8,11 +8,31 @@ Provides:
 - Network isolation
 """
 
-import docker
-import docker.errors
 import logging
 from typing import Tuple, Optional, Dict
 from dataclasses import dataclass
+
+try:
+    import docker
+    import docker.errors
+except ImportError:
+    class _DockerAPIError(Exception):
+        """Fallback Docker API error when docker SDK is not installed."""
+
+    class _DockerErrors:
+        APIError = _DockerAPIError
+
+    class _MissingDockerModule:
+        errors = _DockerErrors
+
+        @staticmethod
+        def from_env():
+            raise RuntimeError(
+                "Docker SDK is not installed. Install agentManager with the "
+                "'sandbox' extra to use WorkerSandbox."
+            )
+
+    docker = _MissingDockerModule()
 
 
 logger = logging.getLogger(__name__)

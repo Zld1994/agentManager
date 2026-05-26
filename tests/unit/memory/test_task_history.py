@@ -1,7 +1,7 @@
 """Unit tests for TaskHistory module."""
 
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -21,7 +21,14 @@ def temp_db():
 @pytest.fixture
 def memory_system(temp_db):
     """Create a MemorySystem instance with temporary database."""
-    return MemorySystem(db_path=temp_db)
+    system = MemorySystem(db_path=temp_db)
+    yield system
+    system.close()
+
+
+def utc_now():
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 @pytest.fixture
@@ -32,7 +39,7 @@ def task_history(memory_system):
 
 def test_task_record_creation():
     """Test TaskRecord dataclass creation."""
-    now = datetime.utcnow()
+    now = utc_now()
     record = TaskRecord(
         task_id="task_001",
         session_id="session_001",
@@ -48,7 +55,7 @@ def test_task_record_creation():
 
 def test_task_record_serialization():
     """Test TaskRecord to_dict and from_dict."""
-    now = datetime.utcnow()
+    now = utc_now()
     record = TaskRecord(
         task_id="task_001",
         session_id="session_001",

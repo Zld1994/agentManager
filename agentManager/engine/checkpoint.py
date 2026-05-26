@@ -9,7 +9,6 @@ import tarfile
 import tempfile
 from pathlib import Path
 from typing import Optional
-import sys
 
 logger = logging.getLogger(__name__)
 
@@ -29,12 +28,6 @@ def safe_extract(tar: tarfile.TarFile, path: str) -> None:
     """
     target_path = Path(path).resolve()
 
-    # Python 3.12+ has built-in filter parameter
-    if sys.version_info >= (3, 12):
-        tar.extractall(path=path, filter='data')
-        return
-
-    # For older Python versions, manually validate paths
     for member in tar.getmembers():
         # Check for absolute paths first
         if member.name.startswith('/'):
@@ -61,7 +54,12 @@ def safe_extract(tar: tarfile.TarFile, path: str) -> None:
             )
 
     # If all paths are safe, extract
-    tar.extractall(path=path)
+    try:
+        tar.extractall(path=path, filter='data')
+    except TypeError:
+        tar.extractall(path=path)
+    except tarfile.TarError as e:
+        raise ValueError(f"Unsafe archive member detected: {e}") from e
 
 
 async def load_checkpoint_with_recovery(

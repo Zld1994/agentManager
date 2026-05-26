@@ -220,3 +220,13 @@ class TestEventBus:
 
         # Good callback should still be called
         assert len(received_events) == 1
+
+    def test_event_retention_limit(self):
+        """Test that the event bus only keeps the configured number of events."""
+        bus = EventBus(max_events=2)
+
+        bus.publish(Event(EventType.TASK_CREATED, workflow_id="wf_1", event_id="evt_1"))
+        bus.publish(Event(EventType.TASK_STARTED, workflow_id="wf_1", event_id="evt_2"))
+        bus.publish(Event(EventType.TASK_COMPLETED, workflow_id="wf_1", event_id="evt_3"))
+
+        assert [event.event_id for event in bus.events] == ["evt_2", "evt_3"]

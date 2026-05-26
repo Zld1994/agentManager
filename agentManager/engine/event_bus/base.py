@@ -7,8 +7,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Callable, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class EventType(str, Enum):
@@ -30,7 +35,7 @@ class Event:
     workflow_id: str
     payload: Dict[str, Any] = field(default_factory=dict)
     event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=utc_now)
 
     def __hash__(self) -> int:
         return hash(self.event_id)
@@ -55,7 +60,7 @@ class Event:
             event_id=data.get("event_id", str(uuid.uuid4())),
             timestamp=datetime.fromisoformat(data["timestamp"])
             if isinstance(data.get("timestamp"), str)
-            else data.get("timestamp", datetime.utcnow()),
+            else data.get("timestamp", utc_now()),
         )
 
 

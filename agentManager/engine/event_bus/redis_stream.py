@@ -6,7 +6,7 @@ Provides persistent event storage, consumer groups, ACK mechanism, and event rep
 import json
 import logging
 from typing import Dict, List, Callable, Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 import asyncio
 
 import redis.asyncio as redis
@@ -16,6 +16,11 @@ from redis.exceptions import ResponseError
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 
 logger = logging.getLogger(__name__)
+
+
+def utc_now() -> datetime:
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class RedisStreamEventBus(BaseEventBus):
@@ -259,7 +264,7 @@ class RedisStreamEventBus(BaseEventBus):
                 **data,
                 "original_message_id": message_id,
                 "error": error,
-                "moved_at": datetime.utcnow().isoformat(),
+                "moved_at": utc_now().isoformat(),
             }
             await self.redis_client.xadd(self.dlq_key, dlq_data)
             logger.warning(f"Moved message {message_id} to DLQ: {error}")

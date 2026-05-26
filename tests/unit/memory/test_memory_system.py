@@ -3,7 +3,7 @@
 import json
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -23,7 +23,14 @@ def temp_db():
 @pytest.fixture
 def memory_system(temp_db):
     """Create a MemorySystem instance with temporary database."""
-    return MemorySystem(db_path=temp_db)
+    system = MemorySystem(db_path=temp_db)
+    yield system
+    system.close()
+
+
+def utc_now():
+    """Return a timezone-aware UTC timestamp."""
+    return datetime.now(timezone.utc)
 
 
 class TestMemoryLayer:
@@ -97,7 +104,7 @@ class TestMemoryEntry:
         entry = MemoryEntry(
             content="Test",
             layer=MemoryLayer.SHORT_TERM,
-            timestamp=datetime.utcnow() - timedelta(hours=2)
+            timestamp=utc_now() - timedelta(hours=2)
         )
         assert entry.is_expired()
 
@@ -114,7 +121,7 @@ class TestMemoryEntry:
         entry = MemoryEntry(
             content="Test",
             layer=MemoryLayer.LONG_TERM,
-            timestamp=datetime.utcnow() - timedelta(days=365)
+            timestamp=utc_now() - timedelta(days=365)
         )
         assert not entry.is_expired()
 
@@ -127,6 +134,7 @@ class TestMemorySystem:
         system = MemorySystem(db_path=temp_db)
         assert system.backend == "sqlite"
         assert system.db_path == Path(temp_db)
+        system.close()
 
     def test_invalid_backend(self, temp_db):
         """Test that invalid backend raises error."""
@@ -159,7 +167,7 @@ class TestMemorySystem:
         entry = MemoryEntry(
             content="Expired content",
             layer=MemoryLayer.SHORT_TERM,
-            timestamp=datetime.utcnow() - timedelta(hours=2)
+            timestamp=utc_now() - timedelta(hours=2)
         )
         memory_system.store(entry)
 
@@ -216,7 +224,7 @@ class TestMemorySystem:
         entry1 = MemoryEntry(
             content="Expired",
             layer=MemoryLayer.SHORT_TERM,
-            timestamp=datetime.utcnow() - timedelta(hours=2)
+            timestamp=utc_now() - timedelta(hours=2)
         )
         entry2 = MemoryEntry(
             content="Valid",
@@ -236,7 +244,7 @@ class TestMemorySystem:
         entry = MemoryEntry(
             content="Permanent",
             layer=MemoryLayer.LONG_TERM,
-            timestamp=datetime.utcnow() - timedelta(days=365)
+            timestamp=utc_now() - timedelta(days=365)
         )
         memory_system.store(entry)
 
@@ -309,3 +317,10 @@ class TestMemorySystem:
 
         retrieved = memory_system.retrieve("test-id")
         assert retrieved.content == "Updated"
+
+    def test_context_manager_closes_connection(self, temp_db):
+        """Test MemorySystem closes its SQLite connection as a context manager."""
+        with MemorySystem(db_path=temp_db) as system:
+            assert system._conn is not None
+
+        assert system._conn is None

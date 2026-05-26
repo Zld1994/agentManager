@@ -7,8 +7,6 @@ and utilization metrics.
 
 import pytest
 from datetime import datetime
-import sys
-sys.path.insert(0, '/home/zld/allProject/agentManager')
 
 from scheduler.resource_manager import (
     ResourceMetrics,
