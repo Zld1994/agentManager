@@ -1,14 +1,15 @@
 """Scheduler for task execution management.
 
-This module manages task scheduling and conflict detection.
+This module manages task scheduling, conflict detection, and retry limits so
+pending tasks cannot be deferred forever when dependencies are unsatisfiable.
 """
 
-from dataclasses import dataclass, field
-from typing import Dict, Set, List, Optional
-from datetime import datetime, timedelta, timezone
 import heapq
 import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from threading import RLock
+from typing import Dict, List, Optional, Set
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,20 @@ def utc_now() -> datetime:
 
 @dataclass
 class ScheduledTask:
-    """Represents a scheduled task."""
+    """Represents a scheduled task.
+
+    retry_attempts and conflict_history are used to prevent scheduler dead
+    loops when a pending task repeatedly encounters dependency conflicts.
+    """
+
     task_id: str
     priority: int = 0
     status: str = "pending"
     dependencies: List[str] = field(default_factory=list)
     next_retry_at: Optional[datetime] = None
+    retry_attempts: int = 0
+    max_retry_attempts: int = 3
+    conflict_history: List[Dict[str, object]] = field(default_factory=list)
 
     def __lt__(self, other):
         """Compare by priority (higher priority first)."""
@@ -53,6 +62,7 @@ class SchedulerEngine:
         task_id: str,
         priority: int = 0,
         dependencies: Optional[List[str]] = None,
+        max_retry_attempts: int = 3,
     ) -> None:
         """Add task to scheduler.
 
@@ -60,6 +70,7 @@ class SchedulerEngine:
             task_id: Task ID
             priority: Task priority (higher = more urgent)
             dependencies: List of dependency task IDs
+            max_retry_attempts: Maximum conflict deferrals before failure
         """
         with self._lock:
             if task_id in self.tasks:
@@ -69,6 +80,7 @@ class SchedulerEngine:
                 task_id=task_id,
                 priority=priority,
                 dependencies=dependencies or [],
+                max_retry_attempts=max_retry_attempts,
             )
             self.tasks[task_id] = task
             heapq.heappush(self.execution_queue, (-priority, task_id))
@@ -102,6 +114,33 @@ class SchedulerEngine:
 
             return conflicts
 
+    def detect_permanent_conflict(self, task_id: str) -> List[str]:
+        """Detect dependency conflicts that cannot resolve by retrying.
+
+        A dependency is permanently conflicted when it is missing from the
+        scheduler or already failed. In either case, the dependent task cannot
+        become runnable through backoff retries alone.
+
+        Args:
+            task_id: Task ID to check
+
+        Returns:
+            List of dependency IDs that are permanently unavailable
+        """
+        with self._lock:
+            if task_id not in self.tasks:
+                return []
+
+            task = self.tasks[task_id]
+            permanent_conflicts = []
+
+            for dep_id in task.dependencies:
+                dep_task = self.tasks.get(dep_id)
+                if dep_task is None or dep_task.status == "failed":
+                    permanent_conflicts.append(dep_id)
+
+            return permanent_conflicts
+
     def execute_scheduled_tasks(self) -> None:
         """Execute ready tasks from queue.
 
@@ -109,6 +148,8 @@ class SchedulerEngine:
         - Max concurrent task limit
         - Dependency constraints
         - Retry backoff for conflicted tasks
+        - Permanent dependency failure detection
+        - Per-task retry limits to prevent dead loops
         """
         with self._lock:
             deferred = []
@@ -136,15 +177,59 @@ class SchedulerEngine:
 
                 if not conflicts:
                     # No conflicts, task can run
+                    task.retry_attempts = 0
+                    task.next_retry_at = None
                     task.status = "running"
                     self.running_tasks.add(task_id)
                     logger.info(f"Started task {task_id}")
                 else:
-                    # Has conflicts, defer with backoff
+                    permanent_conflicts = self.detect_permanent_conflict(task_id)
+                    task.retry_attempts += 1
+                    conflict_record = {
+                        "attempt": task.retry_attempts,
+                        "conflicts": list(conflicts),
+                        "permanent_conflicts": list(permanent_conflicts),
+                        "timestamp": utc_now(),
+                    }
+                    task.conflict_history.append(conflict_record)
+
+                    if permanent_conflicts:
+                        task.status = "failed"
+                        task.next_retry_at = None
+                        logger.error(
+                            "Failed task %s due to permanent dependency conflicts: %s; "
+                            "all conflicts: %s; attempt: %s",
+                            task_id,
+                            permanent_conflicts,
+                            conflicts,
+                            task.retry_attempts,
+                        )
+                        continue
+
+                    if task.retry_attempts > task.max_retry_attempts:
+                        task.status = "failed"
+                        task.next_retry_at = None
+                        logger.error(
+                            "Failed task %s after exceeding max retry attempts "
+                            "(attempts=%s, max=%s, conflicts=%s)",
+                            task_id,
+                            task.retry_attempts,
+                            task.max_retry_attempts,
+                            conflicts,
+                        )
+                        continue
+
+                    # Has temporary conflicts, defer with backoff
                     backoff_seconds = 5
                     task.next_retry_at = utc_now() + timedelta(seconds=backoff_seconds)
                     deferred.append((-task.priority, task_id))
-                    logger.debug(f"Deferred task {task_id}, conflicts: {conflicts}")
+                    logger.debug(
+                        "Deferred task %s, attempt %s/%s, conflicts: %s",
+                        task_id,
+                        task.retry_attempts,
+                        task.max_retry_attempts,
+                        conflicts,
+                    )
 
             # Re-queue deferred tasks
             for item in deferred:
