@@ -16,6 +16,10 @@ from agentManager.recovery.error_classifier import ErrorClassifier
 from agentManager.recovery.recovery_engine import RecoveryEngine
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.engine.event_bus.base import Event, EventType
+from agentManager.runtime.execution_context import (
+    ExecutionContext,
+    ExecutionStatus,
+)
 
 
 class TestRecoveryContext:
@@ -480,3 +484,210 @@ class TestRecoveryEngine:
         result = await engine.execute_recovery(ctx)
 
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_retry_strategy_reruns_task_when_available(
+        self, mock_dependencies
+    ):
+        """Test RETRY re-executes task when the task object is available."""
+        engine = RecoveryEngine(**mock_dependencies)
+
+        task = Mock()
+        task.node_id = "task_1"
+        task.metadata = {"workflow_id": "workflow_1"}
+        mock_dependencies["task_executor"].get_task = Mock(return_value=task)
+        mock_dependencies["task_executor"].run_task = AsyncMock()
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.TIMEOUT,
+            error_msg="Timeout",
+            recovery_strategy=RecoveryStrategy.RETRY,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is True
+        mock_dependencies["task_executor"].run_task.assert_awaited_once_with(
+            task
+        )
+        assert ctx.retry_count == 1
+
+    @pytest.mark.asyncio
+    async def test_retry_strategy_marks_retry_ready_without_task(
+        self, mock_dependencies
+    ):
+        """Test RETRY marks retry-ready context when task object is unavailable."""
+        engine = RecoveryEngine(**mock_dependencies)
+
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+        mock_dependencies["task_executor"].get_task = Mock(return_value=None)
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.TIMEOUT,
+            error_msg="Timeout",
+            recovery_strategy=RecoveryStrategy.RETRY,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is True
+        assert exec_ctx.metadata["recovery_retry_ready"] is True
+        assert (
+            exec_ctx.metadata["recovery_retry_reason"]
+            == "Task object unavailable for immediate re-run"
+        )
+
+    @pytest.mark.asyncio
+    async def test_event_replay_rehydrates_execution_context(
+        self, mock_dependencies
+    ):
+        """Test EVENT_REPLAY applies replayed events into task execution context."""
+        engine = RecoveryEngine(**mock_dependencies)
+
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+        start_event = Event(
+            event_type=EventType.TASK_STARTED,
+            workflow_id="workflow_1",
+            payload={"task_id": "task_1"},
+            event_id="ev-1",
+        )
+        complete_event = Event(
+            event_type=EventType.TASK_COMPLETED,
+            workflow_id="workflow_1",
+            payload={"task_id": "task_1", "result": {"ok": True}},
+            event_id="ev-2",
+        )
+        mock_dependencies["event_bus"].get_events = AsyncMock(
+            return_value=[start_event, complete_event]
+        )
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.NETWORK,
+            error_msg="Network error",
+            event_id="ev-1",
+            recovery_strategy=RecoveryStrategy.EVENT_REPLAY,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is True
+        assert exec_ctx.status == ExecutionStatus.COMPLETED
+        assert exec_ctx.result == {"ok": True}
+        assert exec_ctx.metadata["replayed_event_ids"] == ["ev-1", "ev-2"]
+        assert exec_ctx.metadata["last_replayed_event_id"] == "ev-2"
+
+    @pytest.mark.asyncio
+    async def test_snapshot_restore_validates_checkpoint_id_when_present(
+        self, mock_dependencies
+    ):
+        """Test SNAPSHOT_RESTORE fails when checkpoint_id does not match."""
+        engine = RecoveryEngine(**mock_dependencies)
+
+        checkpoint_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={"checkpoint_id": "cp_actual"},
+        )
+        mock_dependencies["checkpoint_manager"].load_checkpoint = AsyncMock(
+            return_value=checkpoint_ctx
+        )
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.RUNTIME,
+            error_msg="Runtime error",
+            checkpoint_id="cp_expected",
+            recovery_strategy=RecoveryStrategy.SNAPSHOT_RESTORE,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is False
+        assert "task_1" not in mock_dependencies["task_executor"].execution_contexts
+
+    @pytest.mark.asyncio
+    async def test_hitl_stores_manual_intervention_context(
+        self, mock_dependencies
+    ):
+        """Test HITL stores manual intervention details on execution context."""
+        engine = RecoveryEngine(**mock_dependencies)
+
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.SYNTAX,
+            error_msg="Syntax error",
+            recovery_strategy=RecoveryStrategy.HITL,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is True
+        interventions = exec_ctx.metadata["manual_intervention"]
+        assert len(interventions) == 1
+        assert interventions[0]["strategy"] == RecoveryStrategy.HITL.value
+        assert interventions[0]["failure_type"] == FailureType.SYNTAX.value
+        assert interventions[0]["error_msg"] == "Syntax error"
+
+    @pytest.mark.asyncio
+    async def test_escalate_stores_manual_intervention_context(
+        self, mock_dependencies
+    ):
+        """Test ESCALATE stores manual intervention details on execution context."""
+        engine = RecoveryEngine(**mock_dependencies)
+
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.UNKNOWN,
+            error_msg="Unknown error",
+            recovery_strategy=RecoveryStrategy.ESCALATE,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is True
+        interventions = exec_ctx.metadata["manual_intervention"]
+        assert len(interventions) == 1
+        assert interventions[0]["strategy"] == RecoveryStrategy.ESCALATE.value
+        assert interventions[0]["failure_type"] == FailureType.UNKNOWN.value
+        assert interventions[0]["error_msg"] == "Unknown error"

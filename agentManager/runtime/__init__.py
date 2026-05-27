@@ -13,6 +13,10 @@ from agentManager.runtime.task_executor import (
     CheckpointManager,
     WorkerSandbox,
 )
+from agentManager.runtime.workflow_coordinator import (
+    WorkflowCoordinator,
+    WorkflowRunResult,
+)
 
 __all__ = [
     "ExecutionContext",
@@ -20,4 +24,6 @@ __all__ = [
     "TaskExecutor",
     "CheckpointManager",
     "WorkerSandbox",
+    "WorkflowCoordinator",
+    "WorkflowRunResult",
 ]

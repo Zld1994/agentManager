@@ -3,13 +3,42 @@
 Tests for safe_extract() function and path traversal protection.
 """
 
-import pytest
-import tarfile
-import tempfile
+import importlib.util
+import asyncio
 import json
+import tarfile
+import uuid
 from pathlib import Path
 
-from agentManager.engine.checkpoint import safe_extract, load_checkpoint_with_recovery
+import pytest
+
+CHECKPOINT_MODULE_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "agentManager"
+    / "engine"
+    / "checkpoint.py"
+)
+CHECKPOINT_MODULE_SPEC = importlib.util.spec_from_file_location(
+    "checkpoint_under_test",
+    CHECKPOINT_MODULE_PATH,
+)
+assert CHECKPOINT_MODULE_SPEC is not None
+checkpoint_module = importlib.util.module_from_spec(CHECKPOINT_MODULE_SPEC)
+assert CHECKPOINT_MODULE_SPEC.loader is not None
+CHECKPOINT_MODULE_SPEC.loader.exec_module(checkpoint_module)
+
+CheckpointManager = checkpoint_module.CheckpointManager
+InMemoryCheckpointManager = checkpoint_module.InMemoryCheckpointManager
+load_checkpoint_with_recovery = checkpoint_module.load_checkpoint_with_recovery
+safe_extract = checkpoint_module.safe_extract
+LOCAL_TMP_ROOT = Path(__file__).resolve().parents[2] / "test_tmp" / "checkpoint"
+LOCAL_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+def _new_test_dir(prefix: str) -> Path:
+    path = LOCAL_TMP_ROOT / f"{prefix}-{uuid.uuid4().hex}"
+    path.mkdir(parents=True, exist_ok=False)
+    return path
 
 
 class TestSafeExtract:
@@ -17,115 +46,175 @@ class TestSafeExtract:
 
     def test_safe_extract_normal_paths(self):
         """Test extraction of normal paths within target directory."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create a tar file with normal paths
-            tar_path = Path(tmpdir) / 'test.tar.gz'
-            extract_dir = Path(tmpdir) / 'extract'
-            extract_dir.mkdir()
+        tmpdir = _new_test_dir("safe-normal")
+        # Create a tar file with normal paths
+        tar_path = tmpdir / 'test.tar.gz'
+        extract_dir = tmpdir / 'extract'
+        extract_dir.mkdir()
 
-            with tarfile.open(tar_path, 'w:gz') as tar:
-                # Add a normal file
-                info = tarfile.TarInfo(name='normal_file.txt')
-                info.size = 5
-                tar.addfile(info, fileobj=None)
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            # Add a normal file
+            import io
+            info = tarfile.TarInfo(name='normal_file.txt')
+            info.size = 5
+            tar.addfile(info, fileobj=io.BytesIO(b'hello'))
 
-            # Should not raise
-            with tarfile.open(tar_path, 'r:gz') as tar:
-                safe_extract(tar, str(extract_dir))
+        # Should not raise
+        with tarfile.open(tar_path, 'r:gz') as tar:
+            safe_extract(tar, str(extract_dir))
 
     def test_safe_extract_path_traversal_attack(self):
         """Test that path traversal attempts are blocked."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tar_path = Path(tmpdir) / 'malicious.tar.gz'
-            extract_dir = Path(tmpdir) / 'extract'
-            extract_dir.mkdir()
+        tmpdir = _new_test_dir("safe-traversal")
+        tar_path = tmpdir / 'malicious.tar.gz'
+        extract_dir = tmpdir / 'extract'
+        extract_dir.mkdir()
 
-            with tarfile.open(tar_path, 'w:gz') as tar:
-                # Add a file with path traversal
-                info = tarfile.TarInfo(name='../../evil.py')
-                info.size = 0
-                tar.addfile(info, fileobj=None)
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            # Add a file with path traversal
+            info = tarfile.TarInfo(name='../../evil.py')
+            info.size = 0
+            tar.addfile(info, fileobj=None)
 
-            # Should raise ValueError
-            with tarfile.open(tar_path, 'r:gz') as tar:
-                with pytest.raises(ValueError, match='Path traversal detected'):
-                    safe_extract(tar, str(extract_dir))
+        # Should raise ValueError
+        with tarfile.open(tar_path, 'r:gz') as tar:
+            with pytest.raises(ValueError, match='Path traversal detected'):
+                safe_extract(tar, str(extract_dir))
 
     def test_safe_extract_absolute_path_attack(self):
         """Test that absolute paths are blocked."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tar_path = Path(tmpdir) / 'absolute.tar.gz'
-            extract_dir = Path(tmpdir) / 'extract'
-            extract_dir.mkdir()
+        tmpdir = _new_test_dir("safe-absolute")
+        tar_path = tmpdir / 'absolute.tar.gz'
+        extract_dir = tmpdir / 'extract'
+        extract_dir.mkdir()
 
-            with tarfile.open(tar_path, 'w:gz') as tar:
-                # Add a file with absolute path
-                info = tarfile.TarInfo(name='/etc/passwd')
-                info.size = 0
-                tar.addfile(info, fileobj=None)
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            # Add a file with absolute path
+            info = tarfile.TarInfo(name='/etc/passwd')
+            info.size = 0
+            tar.addfile(info, fileobj=None)
 
-            # Should raise ValueError
-            with tarfile.open(tar_path, 'r:gz') as tar:
-                with pytest.raises(ValueError, match='Absolute path detected'):
-                    safe_extract(tar, str(extract_dir))
+        # Should raise ValueError
+        with tarfile.open(tar_path, 'r:gz') as tar:
+            with pytest.raises(ValueError, match='Absolute path detected'):
+                safe_extract(tar, str(extract_dir))
 
     def test_safe_extract_nested_traversal(self):
         """Test nested directory traversal attempts."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tar_path = Path(tmpdir) / 'nested.tar.gz'
-            extract_dir = Path(tmpdir) / 'extract'
-            extract_dir.mkdir()
+        tmpdir = _new_test_dir("safe-nested")
+        tar_path = tmpdir / 'nested.tar.gz'
+        extract_dir = tmpdir / 'extract'
+        extract_dir.mkdir()
 
-            with tarfile.open(tar_path, 'w:gz') as tar:
-                # Add a file with nested traversal
-                info = tarfile.TarInfo(name='subdir/../../../../etc/passwd')
-                info.size = 0
-                tar.addfile(info, fileobj=None)
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            # Add a file with nested traversal
+            info = tarfile.TarInfo(name='subdir/../../../../etc/passwd')
+            info.size = 0
+            tar.addfile(info, fileobj=None)
 
-            # Should raise ValueError
-            with tarfile.open(tar_path, 'r:gz') as tar:
-                with pytest.raises(ValueError, match='Path traversal detected'):
-                    safe_extract(tar, str(extract_dir))
+        # Should raise ValueError
+        with tarfile.open(tar_path, 'r:gz') as tar:
+            with pytest.raises(ValueError, match='Path traversal detected'):
+                safe_extract(tar, str(extract_dir))
 
 
-@pytest.mark.asyncio
 class TestLoadCheckpointWithRecovery:
     """Test suite for load_checkpoint_with_recovery function."""
 
-    async def test_load_checkpoint_not_found(self):
+    def test_load_checkpoint_not_found(self):
         """Test loading non-existent checkpoint."""
-        result = await load_checkpoint_with_recovery(
-            '/nonexistent/checkpoint.tar.gz',
-            'task_123'
+        result = asyncio.run(
+            load_checkpoint_with_recovery(
+                '/nonexistent/checkpoint.tar.gz',
+                'task_123',
+            )
         )
         assert result is None
 
-    async def test_load_checkpoint_with_malicious_paths(self):
+    def test_load_checkpoint_with_malicious_paths(self):
         """Test that malicious checkpoints are rejected."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tar_path = Path(tmpdir) / 'malicious.tar.gz'
+        tmpdir = _new_test_dir("load-malicious")
+        tar_path = tmpdir / 'malicious.tar.gz'
 
-            with tarfile.open(tar_path, 'w:gz') as tar:
-                info = tarfile.TarInfo(name='../../evil.py')
-                info.size = 0
-                tar.addfile(info, fileobj=None)
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            info = tarfile.TarInfo(name='../../evil.py')
+            info.size = 0
+            tar.addfile(info, fileobj=None)
 
-            with pytest.raises(ValueError, match='Path traversal detected'):
-                await load_checkpoint_with_recovery(str(tar_path), 'task_123')
+        with pytest.raises(ValueError, match='Path traversal detected'):
+            asyncio.run(load_checkpoint_with_recovery(str(tar_path), 'task_123'))
 
-    async def test_load_checkpoint_valid(self):
+    def test_load_checkpoint_valid(self):
         """Test loading valid checkpoint."""
         import io
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tar_path = Path(tmpdir) / 'valid.tar.gz'
-            checkpoint_data = {'state': 'recovered', 'step': 5}
+        tmpdir = _new_test_dir("load-valid")
+        tar_path = tmpdir / 'valid.tar.gz'
+        checkpoint_data = {'state': 'recovered', 'step': 5}
 
-            with tarfile.open(tar_path, 'w:gz') as tar:
-                # Add checkpoint.json with proper content
-                json_data = json.dumps(checkpoint_data).encode()
-                info = tarfile.TarInfo(name='checkpoint.json')
-                info.size = len(json_data)
-                tar.addfile(info, fileobj=io.BytesIO(json_data))
+        with tarfile.open(tar_path, 'w:gz') as tar:
+            # Add checkpoint.json with proper content
+            json_data = json.dumps(checkpoint_data).encode()
+            info = tarfile.TarInfo(name='checkpoint.json')
+            info.size = len(json_data)
+            tar.addfile(info, fileobj=io.BytesIO(json_data))
 
-            result = await load_checkpoint_with_recovery(str(tar_path), 'task_123')
-            assert result == checkpoint_data
+        result = asyncio.run(load_checkpoint_with_recovery(str(tar_path), 'task_123'))
+        assert result == checkpoint_data
+
+
+class TestCheckpointManagerInterface:
+    """Test suite for the engine-side checkpoint manager abstraction."""
+
+    def test_in_memory_checkpoint_manager_round_trip(self):
+        manager = InMemoryCheckpointManager()
+        payload = {"state": "running", "step": 7}
+
+        assert isinstance(manager, CheckpointManager)
+
+        asyncio.run(manager.save_checkpoint("task_123", payload))
+        loaded = asyncio.run(manager.load_checkpoint("task_123"))
+        assert loaded == payload
+        asyncio.run(manager.delete_checkpoint("task_123"))
+        assert asyncio.run(manager.load_checkpoint("task_123")) is None
+
+    def test_manager_delegates_archive_recovery_helper(self):
+        manager = InMemoryCheckpointManager()
+
+        tmpdir = _new_test_dir("manager-valid")
+        tar_path = tmpdir / "valid.tar.gz"
+        checkpoint_data = {"state": "delegated", "step": 11}
+
+        import io
+
+        with tarfile.open(tar_path, "w:gz") as tar:
+            json_data = json.dumps(checkpoint_data).encode()
+            info = tarfile.TarInfo(name="checkpoint.json")
+            info.size = len(json_data)
+            tar.addfile(info, fileobj=io.BytesIO(json_data))
+
+        result = asyncio.run(
+            manager.load_checkpoint_with_recovery(
+                str(tar_path),
+                "task_123",
+            )
+        )
+        assert result == checkpoint_data
+
+    def test_manager_archive_recovery_keeps_traversal_protection(self):
+        manager = InMemoryCheckpointManager()
+
+        tmpdir = _new_test_dir("manager-malicious")
+        tar_path = tmpdir / "malicious.tar.gz"
+
+        with tarfile.open(tar_path, "w:gz") as tar:
+            info = tarfile.TarInfo(name="../../evil.py")
+            info.size = 0
+            tar.addfile(info, fileobj=None)
+
+        with pytest.raises(ValueError, match='Path traversal detected'):
+            asyncio.run(
+                manager.load_checkpoint_with_recovery(
+                    str(tar_path),
+                    "task_123",
+                )
+            )

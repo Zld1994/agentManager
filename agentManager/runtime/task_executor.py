@@ -5,16 +5,22 @@ task execution flow, including lifecycle management, error handling, and recover
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Protocol
 from abc import ABC, abstractmethod
 
-from agentManager.engine.dag import DAGEngine, DAGNode
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.runtime.execution_context import ExecutionContext
 
 logger = logging.getLogger(__name__)
+
+
+class TaskLike(Protocol):
+    """Protocol for task objects accepted by TaskExecutor."""
+
+    node_id: str
+    metadata: Dict[str, Any]
 
 
 class CheckpointManager(ABC):
@@ -104,7 +110,7 @@ class TaskExecutor:
 
     def __init__(
         self,
-        dag_engine: DAGEngine,
+        dag_engine: Any,
         scheduler: SchedulerEngine,
         worker_sandbox: WorkerSandbox,
         event_bus: BaseEventBus,
@@ -133,12 +139,14 @@ class TaskExecutor:
 
         # Execution contexts for tracking
         self.execution_contexts: Dict[str, ExecutionContext] = {}
+        # Task registry for recovery-triggered reruns.
+        self._task_registry: Dict[str, TaskLike] = {}
 
         logger.info(
             f"TaskExecutor initialized with max_retries={max_retries}"
         )
 
-    async def run_task(self, task: DAGNode) -> ExecutionContext:
+    async def run_task(self, task: TaskLike) -> ExecutionContext:
         """Execute a single task with full lifecycle management.
 
         Manages the complete task execution flow:
@@ -161,6 +169,7 @@ class TaskExecutor:
         """
         task_id = task.node_id
         workflow_id = task.metadata.get("workflow_id", "unknown")
+        self._task_registry[task_id] = task
 
         logger.info(f"Starting execution of task {task_id}")
 
@@ -172,8 +181,9 @@ class TaskExecutor:
         )
         context.mark_started()  # Mark as started immediately
 
-        # Initialize state machine for this task
-        self.state_machine.initialize(task_id, TaskState.PENDING)
+        # Initialize state machine if task state has not been set yet.
+        if self.state_machine.get_state(task_id) is None:
+            self.state_machine.initialize(task_id, TaskState.PENDING)
         self.execution_contexts[task_id] = context
 
         try:
@@ -255,7 +265,7 @@ class TaskExecutor:
             raise
 
     async def _execute_with_retry(
-        self, task: DAGNode, context: ExecutionContext
+        self, task: TaskLike, context: ExecutionContext
     ) -> Dict[str, Any]:
         """Execute task with retry logic.
 
@@ -372,6 +382,10 @@ class TaskExecutor:
         """
         return self.execution_contexts.copy()
 
+    def get_task(self, task_id: str) -> Optional[TaskLike]:
+        """Get the most recently seen task object for a task id."""
+        return self._task_registry.get(task_id)
+
     async def cleanup(self, task_id: str) -> None:
         """Clean up execution context for a task.
 
@@ -381,3 +395,4 @@ class TaskExecutor:
         if task_id in self.execution_contexts:
             del self.execution_contexts[task_id]
             logger.info(f"Cleaned up execution context for task {task_id}")
+        self._task_registry.pop(task_id, None)

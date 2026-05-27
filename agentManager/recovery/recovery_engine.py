@@ -5,6 +5,7 @@ task recovery using various strategies based on failure types.
 """
 
 import logging
+import inspect
 from typing import Dict, Optional
 from datetime import datetime, timezone
 
@@ -15,6 +16,7 @@ from agentManager.recovery.recovery_context import (
 )
 from agentManager.recovery.error_classifier import ErrorClassifier
 from agentManager.runtime.task_executor import TaskExecutor, CheckpointManager
+from agentManager.runtime.execution_context import ExecutionContext
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
 
@@ -205,11 +207,8 @@ class RecoveryEngine:
             return False
 
         try:
-            # Get execution context
-            exec_ctx = self.task_executor.get_execution_context(task_id)
-            if not exec_ctx:
-                logger.error(f"No execution context found for task {task_id}")
-                return False
+            # Get/create execution context
+            exec_ctx = self._get_or_create_execution_context(ctx)
 
             # Increment retry count
             ctx.retry_count += 1
@@ -218,11 +217,31 @@ class RecoveryEngine:
                 f"(attempt {ctx.retry_count}/{self.MAX_RETRY_ATTEMPTS})"
             )
 
-            # Note: Actual task re-execution would be handled by TaskExecutor
-            # This marks the task as ready for retry
+            get_task = getattr(self.task_executor, "get_task", None)
+            task = None
+            if callable(get_task):
+                task = get_task(task_id)
+                if inspect.isawaitable(task):
+                    task = await task
+
+            if task is not None:
+                await self.task_executor.run_task(task)
+                exec_ctx.metadata.pop("recovery_retry_ready", None)
+                exec_ctx.metadata.pop("recovery_retry_reason", None)
+                exec_ctx.metadata["recovery_last_retry_at"] = utc_now().isoformat()
+                return True
+
+            exec_ctx.metadata["recovery_retry_ready"] = True
+            exec_ctx.metadata["recovery_retry_reason"] = (
+                "Task object unavailable for immediate re-run"
+            )
+            exec_ctx.metadata["recovery_retry_count"] = ctx.retry_count
+            exec_ctx.metadata["recovery_last_retry_at"] = utc_now().isoformat()
             return True
 
         except Exception as e:
+            exec_ctx = self._get_or_create_execution_context(ctx)
+            exec_ctx.metadata["recovery_retry_error"] = str(e)
             logger.error(f"RETRY strategy failed: {str(e)}", exc_info=True)
             return False
 
@@ -255,22 +274,45 @@ class RecoveryEngine:
                 logger.warning(f"No events found for workflow {workflow_id}")
                 return False
 
-            # Find the event to replay from
-            replay_events = [e for e in events if e.event_id == ctx.event_id]
-
-            if not replay_events:
+            # Find the replay start index
+            replay_start = next(
+                (i for i, event in enumerate(events) if event.event_id == ctx.event_id),
+                None,
+            )
+            if replay_start is None:
                 logger.warning(
                     f"Event {ctx.event_id} not found in event bus"
                 )
                 return False
 
+            replay_events = events[replay_start:]
+            exec_ctx = self._get_or_create_execution_context(ctx)
+            replayed_event_ids = []
+
             logger.info(
                 f"Found {len(replay_events)} events to replay for task {task_id}"
             )
 
-            # Replay events (in real implementation, would process each event)
             for event in replay_events:
-                logger.debug(f"Replaying event: {event.event_type.value}")
+                payload = getattr(event, "payload", {})
+                if not isinstance(payload, dict):
+                    payload = {}
+                payload_task_id = payload.get("task_id")
+                if payload_task_id and payload_task_id != task_id:
+                    continue
+
+                replayed_event_ids.append(event.event_id)
+                self._apply_event_to_execution_context(ctx, exec_ctx, event)
+
+            if not replayed_event_ids:
+                logger.warning(
+                    "No task-scoped events were replayed for task %s", task_id
+                )
+                return False
+
+            exec_ctx.metadata["replayed_event_ids"] = replayed_event_ids
+            exec_ctx.metadata["last_replayed_event_id"] = replayed_event_ids[-1]
+            exec_ctx.metadata["replayed_from_event_id"] = ctx.event_id
 
             return True
 
@@ -306,12 +348,39 @@ class RecoveryEngine:
                 logger.warning(f"No checkpoint found for task {task_id}")
                 return False
 
+            checkpoint_task_id = getattr(checkpoint, "task_id", None)
+            if (
+                isinstance(checkpoint_task_id, str)
+                and checkpoint_task_id
+                and checkpoint_task_id != task_id
+            ):
+                logger.warning(
+                    "Checkpoint task id mismatch for task %s", task_id
+                )
+                return False
+
+            expected_checkpoint_id = ctx.checkpoint_id
+            actual_checkpoint_id = self._extract_checkpoint_id(checkpoint)
+            if (
+                actual_checkpoint_id is not None
+                and actual_checkpoint_id != expected_checkpoint_id
+            ):
+                logger.warning(
+                    "Checkpoint id mismatch for task %s (expected=%s, got=%s)",
+                    task_id,
+                    expected_checkpoint_id,
+                    actual_checkpoint_id,
+                )
+                return False
+
             logger.info(
                 f"Loaded checkpoint {ctx.checkpoint_id} for task {task_id}"
             )
 
             # Restore execution context
             self.task_executor.execution_contexts[task_id] = checkpoint
+            if isinstance(getattr(checkpoint, "metadata", None), dict):
+                checkpoint.metadata["restored_from_checkpoint"] = ctx.checkpoint_id
 
             logger.info(f"Restored execution context for task {task_id}")
             return True
@@ -337,6 +406,7 @@ class RecoveryEngine:
         logger.info(f"Executing HITL strategy for task {task_id}")
 
         try:
+            self._record_manual_intervention(ctx, RecoveryStrategy.HITL.value)
             # Transition to BLOCKED_HITL state
             self.state_machine.transition(
                 task_id,
@@ -366,6 +436,9 @@ class RecoveryEngine:
         logger.info(f"Executing ESCALATE strategy for task {task_id}")
 
         try:
+            self._record_manual_intervention(
+                ctx, RecoveryStrategy.ESCALATE.value
+            )
             # Log escalation details
             escalation_info = {
                 "task_id": task_id,
@@ -462,3 +535,128 @@ class RecoveryEngine:
 
         except Exception as e:
             logger.error(f"Failed to publish recovery event: {str(e)}")
+
+    def _get_or_create_execution_context(
+        self, ctx: RecoveryContext
+    ) -> ExecutionContext:
+        """Get an existing execution context or create one for recovery metadata."""
+        execution_ctx = self.task_executor.get_execution_context(ctx.task_id)
+        if execution_ctx:
+            metadata = getattr(execution_ctx, "metadata", None)
+            if not isinstance(metadata, dict):
+                execution_ctx.metadata = {}
+            return execution_ctx
+
+        execution_ctx = ExecutionContext(
+            task_id=ctx.task_id,
+            workflow_id=ctx.workflow_id,
+            metadata={},
+        )
+        self.task_executor.execution_contexts[ctx.task_id] = execution_ctx
+        return execution_ctx
+
+    @staticmethod
+    def _extract_checkpoint_id(checkpoint: ExecutionContext) -> Optional[str]:
+        """Extract checkpoint id from checkpoint context when available."""
+        checkpoint_id = getattr(checkpoint, "checkpoint_id", None)
+        if isinstance(checkpoint_id, str) and checkpoint_id:
+            return checkpoint_id
+        if isinstance(getattr(checkpoint, "metadata", None), dict):
+            metadata_checkpoint_id = checkpoint.metadata.get("checkpoint_id")
+            if (
+                isinstance(metadata_checkpoint_id, str)
+                and metadata_checkpoint_id
+            ):
+                return metadata_checkpoint_id
+        return None
+
+    def _apply_event_to_execution_context(
+        self,
+        recovery_ctx: RecoveryContext,
+        execution_ctx: ExecutionContext,
+        event: Event,
+    ) -> None:
+        """Apply one event into execution/state context during replay."""
+        payload = getattr(event, "payload", {})
+        if not isinstance(payload, dict):
+            payload = {}
+
+        if event.event_type == EventType.TASK_STARTED:
+            execution_ctx.mark_started()
+            self._safe_transition(
+                recovery_ctx.task_id,
+                TaskState.IMPLEMENTING,
+                "Recovery event replay: task_started",
+            )
+            return
+
+        if event.event_type == EventType.TASK_COMPLETED:
+            result = payload.get("result", {})
+            if not isinstance(result, dict):
+                result = {"result": result}
+            execution_ctx.mark_completed(result)
+            self._safe_transition(
+                recovery_ctx.task_id,
+                TaskState.COMPLETED,
+                "Recovery event replay: task_completed",
+            )
+            return
+
+        if event.event_type == EventType.TASK_FAILED:
+            error = str(payload.get("error", recovery_ctx.error_msg))
+            execution_ctx.mark_failed(error)
+            retry_count = payload.get("retry_count")
+            if isinstance(retry_count, int):
+                execution_ctx.retry_count = retry_count
+            self._safe_transition(
+                recovery_ctx.task_id,
+                TaskState.FAILED,
+                "Recovery event replay: task_failed",
+            )
+            return
+
+        if event.event_type == EventType.TASK_BLOCKED:
+            self._safe_transition(
+                recovery_ctx.task_id,
+                TaskState.BLOCKED_HITL,
+                "Recovery event replay: task_blocked",
+            )
+
+    def _safe_transition(
+        self, task_id: str, new_state: TaskState, reason: str
+    ) -> None:
+        """Best-effort state transition for replay operations."""
+        try:
+            get_state = getattr(self.state_machine, "get_state", None)
+            initialize = getattr(self.state_machine, "initialize", None)
+            if callable(get_state) and callable(initialize):
+                if get_state(task_id) is None:
+                    initialize(task_id, TaskState.PENDING)
+            self.state_machine.transition(task_id, new_state, reason)
+        except Exception as exc:
+            logger.debug(
+                "Skipping replay transition for %s -> %s: %s",
+                task_id,
+                new_state.value,
+                exc,
+            )
+
+    def _record_manual_intervention(
+        self, ctx: RecoveryContext, strategy: str
+    ) -> None:
+        """Persist manual intervention context for HITL/ESCALATE handling."""
+        execution_ctx = self._get_or_create_execution_context(ctx)
+        interventions = execution_ctx.metadata.setdefault(
+            "manual_intervention", []
+        )
+        interventions.append(
+            {
+                "strategy": strategy,
+                "failure_type": ctx.failure_type.value,
+                "error_msg": ctx.error_msg,
+                "retry_count": ctx.retry_count,
+                "checkpoint_id": ctx.checkpoint_id,
+                "event_id": ctx.event_id,
+                "timestamp": utc_now().isoformat(),
+            }
+        )

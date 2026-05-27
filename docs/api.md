@@ -2,7 +2,7 @@
 
 **agentManager REST API v0.1.0**
 
-This document describes the REST API endpoints for agentManager. All endpoints return JSON responses.
+This document describes the REST API endpoints for agentManager. This project is a Phase 1 prototype and is not production-ready. All endpoints return JSON responses.
 
 ## Base URL
 
@@ -16,23 +16,7 @@ Currently, no authentication is required. This will be added in Phase 2.
 
 ## Response Format
 
-All responses follow this format:
-
-### Success Response (2xx)
-```json
-{
-  "data": { /* response data */ },
-  "status": "success"
-}
-```
-
-### Error Response (4xx, 5xx)
-```json
-{
-  "detail": "Error message",
-  "status": "error"
-}
-```
+Responses are returned as plain JSON objects. Success responses use the endpoint-specific shape shown below. Error responses use FastAPI's standard `{"detail": "..."}` format.
 
 ## Endpoints
 
@@ -202,7 +186,7 @@ curl http://localhost:8000/tasks/task_1
 
 #### GET /tasks/ready
 
-Get all tasks that are ready for execution (no pending dependencies).
+Get all tasks that are ready for execution (no pending dependencies). The `ready_tasks` field contains task/node IDs, not full task objects.
 
 **Request**:
 ```bash
@@ -260,8 +244,8 @@ curl -X POST http://localhost:8000/tasks/task_1/complete
 - 500 Internal Server Error: Invalid state transition
 
 **State Transitions**:
-- Allowed from: PENDING, READY, IMPLEMENTING, VERIFYING, FAILED, BLOCKED_REPAIR
-- Not allowed from: COMPLETED, BLOCKED_HITL
+- The handler transitions any non-terminal task to `COMPLETED`.
+- `COMPLETED` and `BLOCKED_HITL` are terminal states and are not transitioned by this endpoint.
 
 **Example**:
 ```bash
@@ -298,8 +282,8 @@ curl -X POST "http://localhost:8000/tasks/task_1/fail?reason=timeout"
 - 500 Internal Server Error: Invalid state transition
 
 **State Transitions**:
-- Allowed from: PENDING, READY, IMPLEMENTING, VERIFYING, BLOCKED_REPAIR
-- Not allowed from: COMPLETED, BLOCKED_HITL
+- The handler transitions any non-terminal task to `FAILED`.
+- `COMPLETED` and `BLOCKED_HITL` are terminal states and are not transitioned by this endpoint.
 
 **Example**:
 ```bash

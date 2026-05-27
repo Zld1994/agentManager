@@ -1,3 +1,7 @@
+#
+# Development compose file.
+# The defaults below are for local use only and are not production-safe.
+#
 services:
   agentmanager:
     build:

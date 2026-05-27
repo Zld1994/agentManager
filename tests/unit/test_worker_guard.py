@@ -13,6 +13,7 @@ import pytest
 from datetime import datetime
 from collections import deque
 
+from agentManager.sandbox import worker_guard as worker_guard_module
 from agentManager.sandbox.worker_guard import (
     WorkerGuard,
     compute_text_similarity,
@@ -167,6 +168,19 @@ class TestGuardStatus:
         assert status["repeated_errors"] is False
         assert "timestamp" in status
 
+    def test_get_guard_status_uses_configured_error_detection(self):
+        """Test status reports repeated errors using configured thresholds."""
+        guard = WorkerGuard(error_window_size=3, error_repeat_threshold=1.0)
+
+        guard.track_error("TimeoutError", "Request timed out")
+        guard.track_error("TimeoutError", "Request timed out")
+
+        assert guard.get_guard_status()["repeated_errors"] is False
+
+        guard.track_error("TimeoutError", "Request timed out")
+
+        assert guard.get_guard_status()["repeated_errors"] is True
+
 
 class TestHelperFunctions:
     """Test helper functions."""
@@ -204,3 +218,51 @@ class TestHelperFunctions:
     def test_compute_text_similarity_different(self):
         """Test text similarity for completely different texts."""
         assert compute_text_similarity("hello world", "foo bar baz") == 0.0
+
+    def test_compute_word_jaccard_similarity_alias(self):
+        """Test the explicit word-level Jaccard alias."""
+        text1 = "hello hello world"
+        text2 = "world hello"
+
+        assert worker_guard_module.compute_word_jaccard_similarity(text1, text2) == 1.0
+        assert compute_text_similarity(text1, text2) == 1.0
+
+    def test_compute_text_similarity_uses_word_set_overlap(self):
+        """Test similarity ignores duplicate words and word order."""
+        assert compute_text_similarity("alpha beta beta", "beta alpha") == 1.0
+
+
+class TestConfigurableLoopDetection:
+    """Test configurable loop detection windows and thresholds."""
+
+    def test_is_repeated_action_with_window_threshold(self):
+        """Test action repetition detection over a configurable window."""
+        actions = deque(maxlen=10)
+        repeated_action = {"action_type": "test", "action_params": {"key": "value"}}
+
+        actions.append(repeated_action)
+        actions.append({"action_type": "other", "action_params": {"key": "value"}})
+        actions.append(repeated_action)
+        actions.append(repeated_action)
+
+        assert is_repeated_action(actions, window_size=4, repeat_threshold=0.75) is True
+
+    def test_is_repeated_error_with_window_threshold(self):
+        """Test error repetition detection over a configurable window."""
+        errors = deque(maxlen=10)
+        repeated_error = {"error_type": "RuntimeError", "error_msg": "Test error"}
+
+        errors.append(repeated_error)
+        errors.append({"error_type": "ValueError", "error_msg": "Other error"})
+        errors.append(repeated_error)
+
+        assert is_repeated_error(errors, window_size=3, repeat_threshold=2 / 3) is True
+
+    def test_track_output_respects_configurable_window(self):
+        """Test output loop detection only scans the configured window."""
+        guard = WorkerGuard(output_window_size=2, output_similarity_threshold=0.9)
+
+        assert guard.track_output("alpha beta gamma") is True
+        assert guard.track_output("delta epsilon zeta") is True
+        assert guard.track_output("eta theta iota") is True
+        assert guard.track_output("alpha beta gamma") is True

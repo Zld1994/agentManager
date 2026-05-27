@@ -14,31 +14,37 @@
 
 **Remaining High-Priority Tasks**:
 
+鉁?**COMPLETED (2026-05-28)**:
+- Reconciled README/API examples with prototype status and current API behavior.
+- Split development/production configuration guidance so weak local defaults are not presented as production-safe.
+- Replaced misleading production-ready claims in static completion reports with historical milestone wording.
+- Added `WorkflowCoordinator` to connect DAG readiness, scheduler dispatch, task execution, events, state transitions, checkpoints, and completion/failure sync.
+- Replaced placeholder recovery behavior with observable retry, event replay, snapshot restore, re-execution, HITL, and escalation behavior.
+- Added a consistent async checkpoint manager surface while preserving archive path traversal protection.
+- Redesigned memory layers around explicit profile/session and engineering memory plus pluggable vector-search backends with SQLite fallback.
+- Clarified WorkerGuard word-level Jaccard similarity behavior and added configurable action/error/output loop detection.
+- Added shared domain models for `Workflow`, `Task`, `TaskRun`, `Agent`, `Worker`, `Artifact`, `Checkpoint`, and `Event`.
+- Pinned `mypy<2.0` in dev dependencies to avoid the mypy 2.x native dependency issue in the current Python 3.15 environment.
+
+**Verification completed (2026-05-28)**:
+- `python -m pytest tests/unit -q --no-cov --ignore=tests/unit/test_api.py` - 377 passed.
+- `python -m pytest tests/e2e/test_runtime_workflow_loop.py tests/unit/test_task_executor.py -q --no-cov` - 26 passed.
+- `python -m pytest tests/unit/test_domain_models.py tests/unit/test_dag_engine.py -q --no-cov` - 35 passed.
+- `git diff --check` - passed, with only CRLF warnings.
+
+**Remaining blockers (2026-05-28)**:
+- `tests/unit/test_api.py` is not verified locally because this machine only has Python 3.15. Installing FastAPI pulls `pydantic-core`, which has no usable wheel here and fails to compile without MSVC `link.exe`.
+- Full `pytest` is not verified locally until the API dependency blocker is resolved. Recommended fix: run tests in a Python 3.11/3.12 virtual environment or CI image.
+- Full e2e suite is partly blocked by Windows pytest temp-directory cleanup permissions; the focused runtime workflow e2e test passes.
+- Docker/Compose validation was static only because Docker is unavailable in this shell.
+
 ## Pending Fixes From Obsidian Review
 
-- Reconcile README claims with the real prototype status; remove production-ready wording until the implementation supports it.
-- Keep the FastAPI startup path `agentManager.api:app` working and aligned with README/docs.
-- Ensure package discovery includes all `agentManager` subpackages in built wheels.
-- Rewrite API usage examples so they match current code, especially `DAGNode.task_type`, `DAGEngine.get_ready_nodes()`, `StateMachine`, and `TaskState`.
-- Fix DAG cycle detection by using a real acyclic-graph check and rejecting edges that introduce cycles.
-- Keep EventBus documentation clear about in-memory versus Redis Streams behavior; complete the interface/implementation split.
-- Ensure wildcard EventBus subscriptions are triggered when publishing workflow-specific events.
-- Allow non-terminal task states to transition into `BLOCKED_HITL` when human intervention is required.
-- Prevent scheduler dead loops when a pending task still has conflicts.
-- Require dependencies to be `completed` before downstream scheduler tasks can run.
-- Add a real execution loop that connects DAG readiness, scheduler dispatch, sandbox execution, events, state transitions, checkpointing, recovery, and defect repair.
-- Replace placeholder recovery strategies with real retry, event replay, snapshot restore, re-execution, and HITL behavior based on a complete recovery context.
-- Harden checkpoint archive extraction against path traversal.
-- Unify base and enhanced checkpoint manager capabilities so recovery code does not depend on methods that may be missing.
-- Redesign memory around explicit profile, project, and engineering memory layers plus a vector-search backend.
-- Harden WorkerSandbox defaults with least-privilege Docker settings, restricted networking, isolated workspaces, and timeout cleanup.
-- Separate WorkerSandbox stdout and stderr using Docker demuxed output.
-- Rename or replace WorkerGuard text similarity logic so it matches the actual Jaccard behavior, then add stronger action/error/output loop detection.
-- Split development and production compose/env configuration so weak default secrets are not usable in production.
-- Keep Prometheus/Grafana compose references in sync with checked-in `monitoring/` files and API metrics endpoints.
-- Replace static test-completion reports with CI-backed test status; remove misleading 100% production-ready claims.
-- Move test/tooling dependencies out of runtime dependencies and remove unnecessary built-in dependencies such as `asyncio`.
-- Define shared domain models for `Workflow`, `Task`, `TaskRun`, `Agent`, `Worker`, `Artifact`, `Checkpoint`, and `Event`.
+- Run `tests/unit/test_api.py` and the complete default `pytest` suite in a supported Python environment (3.11/3.12 recommended).
+- Validate Docker Compose configuration with `docker compose config` in an environment with Docker available.
+- Ensure future static completion reports are generated from CI-backed test status rather than hand-written point-in-time claims.
+- Continue hardening WorkerSandbox beyond current defaults: isolated per-task workspaces, stricter timeout cleanup, and production container policy review.
+- Complete durable backend roadmap: PostgreSQL workflow/task-run state, object-store checkpoints, persistent memory, audit logs, OpenTelemetry traces, and deployment docs.
 
 ## Suggested Refactor Roadmap
 

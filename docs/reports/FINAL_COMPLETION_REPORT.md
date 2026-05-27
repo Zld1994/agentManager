@@ -103,7 +103,7 @@ agentManager/
 - ✅ 完善的可观测性
 - ✅ 自动化 CI/CD
 
-**系统现已生产就绪！**
+**Historical note**: This report recorded a milestone-time completion claim; it is not a current production-readiness guarantee.
 
 ---
 

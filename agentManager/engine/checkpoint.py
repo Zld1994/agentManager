@@ -4,17 +4,64 @@ This module implements secure checkpoint loading and saving with path traversal
 protection and recovery capabilities.
 """
 
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
 import logging
 import tarfile
-import tempfile
 from pathlib import Path
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
+class CheckpointManager(ABC):
+    """Abstract checkpoint manager with a recovery-friendly surface.
+
+    The runtime layer already consumes a checkpoint manager abstraction with
+    save/load/delete methods. This engine-side base keeps the same async
+    contract and also exposes the archive recovery helper so callers can depend
+    on one consistent surface.
+    """
+
+    @abstractmethod
+    async def save_checkpoint(self, task_id: str, context: Any) -> None:
+        """Persist checkpoint data for a task."""
+
+    @abstractmethod
+    async def load_checkpoint(self, task_id: str) -> Optional[Any]:
+        """Load checkpoint data for a task."""
+
+    @abstractmethod
+    async def delete_checkpoint(self, task_id: str) -> None:
+        """Delete checkpoint data for a task."""
+
+    async def load_checkpoint_with_recovery(
+        self,
+        checkpoint_path: str,
+        task_id: str,
+    ) -> Optional[dict]:
+        """Delegate archive loading to the module-level recovery helper."""
+        return await load_checkpoint_with_recovery(checkpoint_path, task_id)
+
+
+class InMemoryCheckpointManager(CheckpointManager):
+    """Lightweight checkpoint manager for tests and local recovery flows."""
+
+    def __init__(self, initial_checkpoints: Optional[Dict[str, Any]] = None):
+        self._checkpoints: Dict[str, Any] = dict(initial_checkpoints or {})
+
+    async def save_checkpoint(self, task_id: str, context: Any) -> None:
+        self._checkpoints[task_id] = context
+
+    async def load_checkpoint(self, task_id: str) -> Optional[Any]:
+        checkpoint = self._checkpoints.get(task_id)
+        return checkpoint
+
+    async def delete_checkpoint(self, task_id: str) -> None:
+        self._checkpoints.pop(task_id, None)
+
+
 def safe_extract(tar: tarfile.TarFile, path: str) -> None:
-    """Safely extract tar archive with path traversal protection.
+    """Safely validate tar archive paths with traversal protection.
 
     Validates that all extracted paths remain within the target directory,
     preventing directory traversal attacks like ../../evil.py.
@@ -53,20 +100,15 @@ def safe_extract(tar: tarfile.TarFile, path: str) -> None:
                 f"target directory {target_path}"
             )
 
-    # If all paths are safe, extract
-    try:
-        tar.extractall(path=path, filter='data')
-    except TypeError:
-        tar.extractall(path=path)
-    except tarfile.TarError as e:
-        raise ValueError(f"Unsafe archive member detected: {e}") from e
+    # Validation is complete; actual checkpoint reads are handled by the
+    # recovery loader to avoid unnecessary filesystem writes.
 
 
 async def load_checkpoint_with_recovery(
     checkpoint_path: str,
     task_id: str,
 ) -> Optional[dict]:
-    """Load checkpoint with path traversal protection.
+    """Load checkpoint JSON with path traversal protection.
 
     Args:
         checkpoint_path: Path to checkpoint tar file
@@ -86,20 +128,32 @@ async def load_checkpoint_with_recovery(
         return None
 
     try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with tarfile.open(checkpoint_file, 'r:gz') as tar:
-                # Use safe extraction
-                safe_extract(tar, tmpdir)
+        with tarfile.open(checkpoint_file, 'r:gz') as tar:
+            # Use safe validation before reading any member payloads.
+            safe_extract(tar, str(checkpoint_file.parent))
 
-            # Load checkpoint data from extracted files
-            checkpoint_data_path = Path(tmpdir) / 'checkpoint.json'
-            if checkpoint_data_path.exists():
-                import json
-                with open(checkpoint_data_path, 'r') as f:
-                    return json.load(f)
+            checkpoint_member = next(
+                (
+                    member
+                    for member in tar.getmembers()
+                    if member.name == 'checkpoint.json'
+                ),
+                None,
+            )
+            if checkpoint_member is None:
+                logger.warning(f"No checkpoint data found in {checkpoint_file}")
+                return None
 
-            logger.warning(f"No checkpoint data found in {checkpoint_file}")
-            return None
+            extracted = tar.extractfile(checkpoint_member)
+            if extracted is None:
+                logger.warning(
+                    f"Unable to read checkpoint data from {checkpoint_file}"
+                )
+                return None
+
+            import json
+            with extracted:
+                return json.load(extracted)
 
     except ValueError as e:
         logger.error(f"Security error loading checkpoint: {e}")

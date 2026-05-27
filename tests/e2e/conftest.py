@@ -1,18 +1,17 @@
 """Fixtures for end-to-end tests built from currently implemented modules."""
 
 import pytest
-from fastapi.testclient import TestClient
-
-from agentManager.api import app, dag_engine, event_bus, scheduler, state_machine
-from agentManager.engine.dag import DAGEngine
-from agentManager.engine.event_bus import EventBus
-from agentManager.engine.scheduler import SchedulerEngine
-from agentManager.engine.state_manager import StateMachine
 
 
 @pytest.fixture
 def api_client():
     """Create an isolated API test client."""
+    try:
+        from fastapi.testclient import TestClient
+        from agentManager.api import app, dag_engine, event_bus, scheduler, state_machine
+    except ModuleNotFoundError as exc:
+        pytest.skip(f"FastAPI test dependencies unavailable: {exc}")
+
     dag_engine.nodes.clear()
     dag_engine.graph.clear()
     state_machine.states.clear()
@@ -28,6 +27,11 @@ def api_client():
 @pytest.fixture
 def workflow_components():
     """Create fresh core workflow components."""
+    from agentManager.engine.dag import DAGEngine
+    from agentManager.engine.event_bus import EventBus
+    from agentManager.engine.scheduler import SchedulerEngine
+    from agentManager.engine.state_manager import StateMachine
+
     return {
         "dag": DAGEngine(),
         "state": StateMachine(),

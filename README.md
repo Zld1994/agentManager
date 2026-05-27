@@ -293,10 +293,11 @@ Manages task dependencies and execution order.
 from agentManager.engine import DAGEngine, DAGNode, TaskStatus
 
 engine = DAGEngine()
-node = DAGNode(node_id="task_1", task_type="type1")
-engine.add_node(node)
-engine.add_edge("task_1", "task_2")  # Auto cycle detection
-ready = engine.get_ready_nodes()
+engine.add_node(DAGNode(node_id="task_1", task_type="type1"))
+engine.add_node(DAGNode(node_id="task_2", task_type="type2"))
+engine.add_edge("task_1", "task_2")
+engine.update_node_status("task_1", TaskStatus.COMPLETED)
+ready = engine.get_ready_nodes()  # ["task_2"]
 ```
 
 **Key Features**:
@@ -315,7 +316,12 @@ from agentManager.engine import StateMachine, TaskState
 sm = StateMachine()
 sm.initialize("task_1", TaskState.PENDING)
 sm.transition("task_1", TaskState.READY)
-sm.transition("task_1", TaskState.BLOCKED_HITL)  # Emergency transition
+sm.transition("task_1", TaskState.IMPLEMENTING)
+sm.transition("task_1", TaskState.VERIFYING)
+sm.transition("task_1", TaskState.COMPLETED)
+
+sm.initialize("task_2", TaskState.READY)
+sm.transition("task_2", TaskState.BLOCKED_HITL)  # Emergency transition from a non-terminal state
 ```
 
 **Key Features**:

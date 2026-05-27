@@ -12,11 +12,14 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 ## Repository Layout
 
 - `agentManager/api.py`: FastAPI application and REST endpoints.
+- `agentManager/domain/`: shared dataclass/enums for workflows, tasks, runs, agents, workers,
+  artifacts, checkpoints, and events.
 - `agentManager/engine/`: DAG, scheduler, state manager, checkpointing, and event bus code.
 - `agentManager/engine/event_bus/`: async event bus abstractions and in-memory/Redis implementations.
-- `agentManager/memory/`: task, session, project, and engineering memory components.
+- `agentManager/memory/`: profile/session, project, engineering memory, and vector-search backend
+  components.
 - `agentManager/recovery/`: recovery context, error classification, and recovery engine.
-- `agentManager/runtime/`: task execution context and runtime helpers.
+- `agentManager/runtime/`: task execution context, task executor, and workflow coordination helpers.
 - `agentManager/sandbox/`: worker guard and sandbox execution helpers.
 - `agentManager/defect_repair/`: canonical in-package defect repair implementation.
 - `scheduler/`: top-level scheduler/resource-manager package.
@@ -131,9 +134,10 @@ isort .
 
 - `README.md` appears to contain mojibake in some Chinese text. Do not rewrite it as part of
   unrelated tasks.
-- `TODO.md` lists known follow-up work:
-  - add Docker support;
-  - implement missing `roles` and `agentManager.scheduler` subpackages referenced by older issues.
+- `TODO.md` tracks current follow-up work and local verification blockers.
+- Local API tests may fail on Python 3.15 because FastAPI depends on `pydantic-core`, which may
+  require MSVC `link.exe` when no wheel is available. Prefer Python 3.11/3.12 or CI for full API
+  verification.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
   may be generated locally. Avoid editing generated metadata by hand unless packaging behavior is
   the target of the task.

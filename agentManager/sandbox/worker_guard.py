@@ -14,9 +14,9 @@ from collections import deque
 from typing import Any, Dict
 
 
-def compute_text_similarity(text1: str, text2: str) -> float:
+def compute_word_jaccard_similarity(text1: str, text2: str) -> float:
     """
-    Compute text similarity using word-based comparison.
+    Compute word-level Jaccard similarity.
 
     Args:
         text1: First text
@@ -40,38 +40,73 @@ def compute_text_similarity(text1: str, text2: str) -> float:
     return len(common_words) / len(total_words) if total_words else 0.0
 
 
-def is_repeated_action(actions: deque) -> bool:
+def compute_text_similarity(text1: str, text2: str) -> float:
     """
-    Check if last 3 actions are identical.
+    Backward-compatible alias for word-level Jaccard similarity.
+    """
+    return compute_word_jaccard_similarity(text1, text2)
+
+
+def _repeat_ratio(items: list) -> float:
+    """
+    Compute the fraction of the most common value in a window.
+    """
+    if not items:
+        return 0.0
+
+    best_count = 1
+    for candidate in items:
+        count = sum(1 for item in items if item == candidate)
+        if count > best_count:
+            best_count = count
+
+    return best_count / len(items)
+
+
+def is_repeated_action(
+    actions: deque,
+    window_size: int = 3,
+    repeat_threshold: float = 1.0,
+) -> bool:
+    """
+    Check whether the most recent actions repeat within a window.
 
     Args:
         actions: Deque of action dictionaries
+        window_size: Number of recent actions to inspect
+        repeat_threshold: Minimum fraction of identical actions required
 
     Returns:
-        True if last 3 actions are identical, False otherwise
+        True if the configured window contains a repeated action pattern
     """
-    if len(actions) < 3:
+    if window_size < 2 or len(actions) < window_size:
         return False
 
-    last_three = list(actions)[-3:]
-    return (last_three[0] == last_three[1] == last_three[2])
+    recent_actions = list(actions)[-window_size:]
+    return _repeat_ratio(recent_actions) >= repeat_threshold
 
 
-def is_repeated_error(errors: deque) -> bool:
+def is_repeated_error(
+    errors: deque,
+    window_size: int = 2,
+    repeat_threshold: float = 1.0,
+) -> bool:
     """
-    Check if last 2 errors are identical.
+    Check whether the most recent errors repeat within a window.
 
     Args:
         errors: Deque of error dictionaries
+        window_size: Number of recent errors to inspect
+        repeat_threshold: Minimum fraction of identical errors required
 
     Returns:
-        True if last 2 errors are identical, False otherwise
+        True if the configured window contains a repeated error pattern
     """
-    if len(errors) < 2:
+    if window_size < 2 or len(errors) < window_size:
         return False
 
-    last_two = list(errors)[-2:]
-    return (last_two[0] == last_two[1])
+    recent_errors = list(errors)[-window_size:]
+    return _repeat_ratio(recent_errors) >= repeat_threshold
 
 
 class WorkerGuard:
@@ -90,13 +125,28 @@ class WorkerGuard:
     TOKEN_WARNING_THRESHOLD = 32000
     HALLUCINATION_THRESHOLD = 0.9
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        action_window_size: int = 3,
+        action_repeat_threshold: float = 1.0,
+        error_window_size: int = 2,
+        error_repeat_threshold: float = 1.0,
+        output_window_size: int = 50,
+        output_similarity_threshold: float = 0.9,
+    ):
         """Initialize WorkerGuard with empty tracking structures."""
-        self._actions: deque = deque(maxlen=100)
-        self._outputs: deque = deque(maxlen=50)
-        self._errors: deque = deque(maxlen=50)
+        self._actions: deque = deque(maxlen=max(100, action_window_size))
+        self._outputs: deque = deque(maxlen=max(50, output_window_size))
+        self._errors: deque = deque(maxlen=max(50, error_window_size))
         self._total_tokens: int = 0
         self._warned_tokens: bool = False
+        self._action_window_size = action_window_size
+        self._action_repeat_threshold = action_repeat_threshold
+        self._error_window_size = error_window_size
+        self._error_repeat_threshold = error_repeat_threshold
+        self._output_window_size = output_window_size
+        self._output_similarity_threshold = output_similarity_threshold
 
     def track_action(
         self,
@@ -120,12 +170,16 @@ class WorkerGuard:
 
     def check_repeated_actions(self) -> bool:
         """
-        Check if last 3 actions are identical (infinite loop detection).
+        Check if recent actions repeat enough to indicate a loop.
 
         Returns:
             True if repeated actions detected, False otherwise
         """
-        return is_repeated_action(self._actions)
+        return is_repeated_action(
+            self._actions,
+            window_size=self._action_window_size,
+            repeat_threshold=self._action_repeat_threshold,
+        )
 
     def track_token_usage(self, tokens: int) -> bool:
         """
@@ -157,10 +211,12 @@ class WorkerGuard:
         Returns:
             True if output is unique, False if hallucination detected
         """
-        # Check similarity with previous outputs
-        for prev_output in self._outputs:
+        # Check similarity with the configured recent output window.
+        recent_window_size = max(1, self._output_window_size)
+        recent_outputs = list(self._outputs)[-recent_window_size:]
+        for prev_output in recent_outputs:
             similarity = compute_text_similarity(output, prev_output["text"])
-            if similarity > self.HALLUCINATION_THRESHOLD:
+            if similarity >= self._output_similarity_threshold:
                 self._outputs.append({"text": output, "timestamp": datetime.now()})
                 return False
 
@@ -185,7 +241,11 @@ class WorkerGuard:
 
         self._errors.append(error_dict)
 
-        return not is_repeated_error(self._errors)
+        return not is_repeated_error(
+            self._errors,
+            window_size=self._error_window_size,
+            repeat_threshold=self._error_repeat_threshold,
+        )
 
     def get_guard_status(self) -> Dict[str, Any]:
         """
@@ -203,6 +263,10 @@ class WorkerGuard:
             "outputs_tracked": len(self._outputs),
             "errors_tracked": len(self._errors),
             "repeated_actions": self.check_repeated_actions(),
-            "repeated_errors": is_repeated_error(self._errors),
+            "repeated_errors": is_repeated_error(
+                self._errors,
+                window_size=self._error_window_size,
+                repeat_threshold=self._error_repeat_threshold,
+            ),
             "timestamp": datetime.now().isoformat(),
         }
