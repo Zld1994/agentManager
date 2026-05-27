@@ -7,6 +7,8 @@
 - Task 2: Added Docker support (Dockerfile.dev, Dockerfile.prod, docker-compose.yml)
 - Task 3: Implemented `agentManager/roles/` and `agentManager/scheduler/` subpackages with unit tests
 - Task 4: Fixed all pytest failures - 457 tests passing ✓
+- Task 5: Improved DAG cycle detection with DFS and cycle path reporting - 19 tests passing ✓
+- Task 6: Prevented scheduler dead loops with retry limits and conflict detection - 24 tests passing ✓
 
 **Remaining High-Priority Tasks**:
 
