@@ -14,7 +14,7 @@
 
 **Remaining High-Priority Tasks**:
 
-鉁?**COMPLETED (2026-05-28)**:
+✅ **COMPLETED (2026-05-28)**:
 - Reconciled README/API examples with prototype status and current API behavior.
 - Split development/production configuration guidance so weak local defaults are not presented as production-safe.
 - Replaced misleading production-ready claims in static completion reports with historical milestone wording.
