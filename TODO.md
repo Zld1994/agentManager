@@ -9,6 +9,8 @@
 - Task 4: Fixed all pytest failures - 457 tests passing ✓
 - Task 5: Improved DAG cycle detection with DFS and cycle path reporting - 19 tests passing ✓
 - Task 6: Prevented scheduler dead loops with retry limits and conflict detection - 24 tests passing ✓
+- Task 8: Ensured FastAPI startup path `agentManager.api:app` working - 10 tests passing ✓
+- Task 9: Completed package discovery in wheels - all 9 subpackages importable ✓
 
 **Remaining High-Priority Tasks**:
 
