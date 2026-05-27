@@ -71,6 +71,18 @@ Run API locally:
 python -m uvicorn agentManager.api:app --host 127.0.0.1 --port 8000
 ```
 
+Run the development Docker stack:
+
+```bash
+docker compose up --build
+```
+
+Build the production Docker image:
+
+```bash
+docker build -f Dockerfile.prod -t agentmanager:prod .
+```
+
 Format and import-sort changed Python files before finalizing larger changes:
 
 ```bash
