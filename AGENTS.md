@@ -71,6 +71,19 @@ Run API locally:
 python -m uvicorn agentManager.api:app --host 127.0.0.1 --port 8000
 ```
 
+Verify FastAPI startup import:
+
+```bash
+python -c 'from agentManager.api import app; print("OK")'
+```
+
+Build and inspect a wheel when packaging changes touch package discovery:
+
+```bash
+python -m build --wheel
+python -m zipfile -l dist/agentmanager-*.whl
+```
+
 Run the development Docker stack:
 
 ```bash

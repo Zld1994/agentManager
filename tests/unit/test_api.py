@@ -1,5 +1,9 @@
 """Unit tests for FastAPI application."""
 
+import importlib
+import subprocess
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 from agentManager.api import app, dag_engine, state_machine, event_bus, scheduler
@@ -24,6 +28,44 @@ def reset_engines():
     scheduler.running_tasks.clear()
     scheduler.completed_tasks.clear()
     yield
+
+
+class TestApplicationStartup:
+    """Test application import and package startup paths."""
+
+    def test_api_app_imports_in_subprocess(self):
+        """Verify the documented startup import command succeeds."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                'from agentManager.api import app; print("OK")',
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == "OK"
+
+    @pytest.mark.parametrize(
+        "module_name",
+        [
+            "agentManager.engine",
+            "agentManager.engine.event_bus",
+            "agentManager.memory",
+            "agentManager.recovery",
+            "agentManager.runtime",
+            "agentManager.sandbox",
+            "agentManager.defect_repair",
+            "agentManager.roles",
+            "agentManager.scheduler",
+        ],
+    )
+    def test_required_subpackages_are_importable(self, module_name):
+        """Verify package discovery targets remain importable."""
+        assert importlib.import_module(module_name).__name__ == module_name
 
 
 class TestHealthEndpoint:
