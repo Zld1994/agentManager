@@ -12,12 +12,12 @@ Tests cover:
 
 import pytest
 
-from defect_repair.classifier import (
+from agentManager.defect_repair.classifier import (
     DefectClassifier,
     DefectPattern,
     SeverityLevel,
 )
-from defect_repair.repair_engine import RepairLevel
+from agentManager.defect_repair.repair_engine import RepairLevel
 
 
 @pytest.fixture
@@ -320,34 +320,26 @@ class TestGetRepairPriority:
 
     def test_get_repair_priority_l1_critical(self, classifier):
         """Test priority for L1 syntax error with critical severity."""
-        priority = classifier.get_repair_priority(
-            RepairLevel.L1_SYNTAX, SeverityLevel.CRITICAL
-        )
+        priority = classifier.get_repair_priority(RepairLevel.L1_SYNTAX, SeverityLevel.CRITICAL)
 
         assert 100 <= priority <= 120  # 80 * 1.5 = 120
         assert priority > 50
 
     def test_get_repair_priority_l1_medium(self, classifier):
         """Test priority for L1 syntax error with medium severity."""
-        priority = classifier.get_repair_priority(
-            RepairLevel.L1_SYNTAX, SeverityLevel.MEDIUM
-        )
+        priority = classifier.get_repair_priority(RepairLevel.L1_SYNTAX, SeverityLevel.MEDIUM)
 
         assert priority == 80  # 80 * 1.0 = 80
 
     def test_get_repair_priority_l2_high(self, classifier):
         """Test priority for L2 logic error with high severity."""
-        priority = classifier.get_repair_priority(
-            RepairLevel.L2_LOGIC, SeverityLevel.HIGH
-        )
+        priority = classifier.get_repair_priority(RepairLevel.L2_LOGIC, SeverityLevel.HIGH)
 
         assert priority == 78  # 60 * 1.3 = 78
 
     def test_get_repair_priority_l3_low(self, classifier):
         """Test priority for L3 performance issue with low severity."""
-        priority = classifier.get_repair_priority(
-            RepairLevel.L3_PERFORMANCE, SeverityLevel.LOW
-        )
+        priority = classifier.get_repair_priority(RepairLevel.L3_PERFORMANCE, SeverityLevel.LOW)
 
         assert priority == 28  # 40 * 0.7 = 28
 
@@ -362,18 +354,14 @@ class TestGetRepairPriority:
     def test_get_repair_priority_clamped_to_100(self, classifier):
         """Test that priority is clamped to maximum 100."""
         # Create a scenario that would exceed 100
-        priority = classifier.get_repair_priority(
-            RepairLevel.L1_SYNTAX, SeverityLevel.CRITICAL
-        )
+        priority = classifier.get_repair_priority(RepairLevel.L1_SYNTAX, SeverityLevel.CRITICAL)
 
         assert priority <= 100
 
     def test_get_repair_priority_clamped_to_1(self, classifier):
         """Test that priority is clamped to minimum 1."""
         # Create a scenario that would be below 1
-        priority = classifier.get_repair_priority(
-            RepairLevel.L3_PERFORMANCE, SeverityLevel.TRIVIAL
-        )
+        priority = classifier.get_repair_priority(RepairLevel.L3_PERFORMANCE, SeverityLevel.TRIVIAL)
 
         assert priority >= 1
 

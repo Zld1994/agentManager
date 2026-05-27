@@ -7,9 +7,9 @@ and contextual analysis.
 
 import logging
 import re
-from enum import Enum
 from dataclasses import dataclass
-from typing import List, Tuple, Dict
+from enum import Enum
+from typing import Dict, List, Tuple
 
 from .repair_engine import RepairLevel
 
@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 class SeverityLevel(Enum):
     """Severity levels for defects (1-5 scale)."""
+
     TRIVIAL = (1, "代码风格")  # Code style issues
     LOW = (2, "性能下降")  # Performance degradation
     MEDIUM = (3, "部分功能异常")  # Partial functionality issues
@@ -38,6 +39,7 @@ class SeverityLevel(Enum):
 @dataclass
 class DefectPattern:
     """Pattern definition for error classification."""
+
     pattern_name: str
     regex_pattern: str
     repair_level: RepairLevel
@@ -77,21 +79,21 @@ class DefectClassifier:
                 regex_pattern=r"SyntaxError|syntax error|invalid syntax",
                 repair_level=RepairLevel.L1_SYNTAX,
                 severity=SeverityLevel.HIGH,
-                description="Python syntax error - invalid code structure"
+                description="Python syntax error - invalid code structure",
             ),
             DefectPattern(
                 pattern_name="TypeError",
                 regex_pattern=r"TypeError|type error|unsupported operand",
                 repair_level=RepairLevel.L1_SYNTAX,
                 severity=SeverityLevel.HIGH,
-                description="Type mismatch or invalid type operation"
+                description="Type mismatch or invalid type operation",
             ),
             DefectPattern(
                 pattern_name="AttributeError",
                 regex_pattern=r"AttributeError|has no attribute|attribute error",
                 repair_level=RepairLevel.L1_SYNTAX,
                 severity=SeverityLevel.HIGH,
-                description="Missing or invalid attribute access"
+                description="Missing or invalid attribute access",
             ),
             # L2: Logic Errors
             DefectPattern(
@@ -99,21 +101,21 @@ class DefectClassifier:
                 regex_pattern=r"AssertionError|assertion failed",
                 repair_level=RepairLevel.L2_LOGIC,
                 severity=SeverityLevel.MEDIUM,
-                description="Assertion condition failed - logic error"
+                description="Assertion condition failed - logic error",
             ),
             DefectPattern(
                 pattern_name="ValueError",
                 regex_pattern=r"ValueError|invalid value|value error",
                 repair_level=RepairLevel.L2_LOGIC,
                 severity=SeverityLevel.MEDIUM,
-                description="Invalid value provided to function"
+                description="Invalid value provided to function",
             ),
             DefectPattern(
                 pattern_name="KeyError",
                 regex_pattern=r"KeyError|key error|key not found",
                 repair_level=RepairLevel.L2_LOGIC,
                 severity=SeverityLevel.MEDIUM,
-                description="Dictionary key not found"
+                description="Dictionary key not found",
             ),
             # L3: Performance Issues
             DefectPattern(
@@ -121,14 +123,14 @@ class DefectClassifier:
                 regex_pattern=r"MemoryError|out of memory|memory exhausted",
                 repair_level=RepairLevel.L3_PERFORMANCE,
                 severity=SeverityLevel.CRITICAL,
-                description="Memory allocation failure"
+                description="Memory allocation failure",
             ),
             DefectPattern(
                 pattern_name="TimeoutError",
                 regex_pattern=r"TimeoutError|timeout|timed out|execution timeout",
                 repair_level=RepairLevel.L3_PERFORMANCE,
                 severity=SeverityLevel.HIGH,
-                description="Operation exceeded time limit"
+                description="Operation exceeded time limit",
             ),
             # L4: Architecture Problems
             DefectPattern(
@@ -136,14 +138,14 @@ class DefectClassifier:
                 regex_pattern=r"ImportError|ModuleNotFoundError|cannot import",
                 repair_level=RepairLevel.L4_ARCHITECTURE,
                 severity=SeverityLevel.HIGH,
-                description="Module or dependency import failure"
+                description="Module or dependency import failure",
             ),
             DefectPattern(
                 pattern_name="CircularDependency",
                 regex_pattern=r"circular import|circular dependency|import cycle",
                 repair_level=RepairLevel.L4_ARCHITECTURE,
                 severity=SeverityLevel.CRITICAL,
-                description="Circular dependency detected in imports"
+                description="Circular dependency detected in imports",
             ),
         ]
 
@@ -247,9 +249,7 @@ class DefectClassifier:
                 # Determine impact scope from code context
                 impact_scope = self._determine_impact_scope(code_context)
                 severity = self.calculate_severity(error_type, impact_scope)
-                logger.debug(
-                    f"Classified as {pattern.repair_level.value} / {severity.name}"
-                )
+                logger.debug(f"Classified as {pattern.repair_level.value} / {severity.name}")
                 return (pattern.repair_level, severity)
 
         # Default classification
@@ -277,9 +277,7 @@ class DefectClassifier:
         # Default to local
         return "local"
 
-    def get_repair_priority(
-        self, repair_level: RepairLevel, severity: SeverityLevel
-    ) -> int:
+    def get_repair_priority(self, repair_level: RepairLevel, severity: SeverityLevel) -> int:
         """
         Calculate repair priority based on repair level and severity.
 

@@ -19,7 +19,6 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 - `agentManager/runtime/`: task execution context and runtime helpers.
 - `agentManager/sandbox/`: worker guard and sandbox execution helpers.
 - `agentManager/defect_repair/`: canonical in-package defect repair implementation.
-- `defect_repair/`: legacy top-level defect repair package; avoid expanding it unless migrating.
 - `scheduler/`: top-level scheduler/resource-manager package.
 - `tests/unit/`: focused unit tests.
 - `tests/e2e/`: end-to-end and performance tests.
@@ -88,8 +87,6 @@ isort .
   `datetime.now(timezone.utc)`.
 - Preserve public API behavior unless the task explicitly asks for a breaking change.
 - Prefer the in-package modules under `agentManager/` for new work.
-- Avoid adding new behavior to the legacy top-level `defect_repair/` package unless the task is
-  specifically about migration or backwards compatibility.
 - Keep concurrency-sensitive scheduler and event bus changes covered by tests.
 - Use structured APIs and project helpers instead of ad hoc parsing where possible.
 
@@ -110,7 +107,6 @@ isort .
 - `README.md` appears to contain mojibake in some Chinese text. Do not rewrite it as part of
   unrelated tasks.
 - `TODO.md` lists known follow-up work:
-  - merge the top-level `defect_repair/` package with `agentManager/defect_repair/`;
   - add Docker support;
   - implement missing `roles` and `agentManager.scheduler` subpackages referenced by older issues.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders

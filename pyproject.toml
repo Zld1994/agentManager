@@ -43,7 +43,7 @@ sandbox = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["agentManager*", "defect_repair*", "scheduler*"]
+include = ["agentManager*", "scheduler*"]
 
 [tool.black]
 line-length = 100

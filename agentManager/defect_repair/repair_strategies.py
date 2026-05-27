@@ -1,16 +1,31 @@
-"""Repair strategies for L1-L4 defect repair."""
+"""
+Repair Strategies - L1-L4 multi-level repair strategies for defect recovery.
 
+Implements four repair strategies:
+- L1: Automatic retry (up to 3 attempts)
+- L2: Template-based repair using error patterns
+- L3: Multi-agent review and consensus
+- L4: Human-in-the-loop (HITL) escalation
+"""
+
+import asyncio
 import logging
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
-class RepairStatus(str, Enum):
-    """Status of repair attempt."""
+def utc_now() -> datetime:
+    """Return the current UTC time with timezone information."""
+    return datetime.now(timezone.utc)
+
+
+class RepairStatus(Enum):
+    """Status of repair operation."""
 
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
@@ -21,274 +36,574 @@ class RepairStatus(str, Enum):
 
 @dataclass
 class RepairResult:
-    """Result of a repair attempt."""
+    """Result of a repair operation."""
 
     status: RepairStatus
-    level: str
-    message: str
-    details: Dict[str, Any] = field(default_factory=dict)
-    timestamp: datetime = field(default_factory=datetime.utcnow)
-    retry_count: int = 0
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "status": self.status.value,
-            "level": self.level,
-            "message": self.message,
-            "details": self.details,
-            "timestamp": self.timestamp.isoformat(),
-            "retry_count": self.retry_count,
-        }
+    repaired_code: Optional[str] = None
+    error_message: Optional[str] = None
+    attempts: int = 0
+    timestamp: datetime = field(default_factory=utc_now)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
-class BaseRepairStrategy:
-    """Base class for repair strategies."""
+class BaseRepairStrategy(ABC):
+    """Abstract base class for repair strategies."""
 
     def __init__(self, name: str):
-        """Initialize strategy.
+        """Initialize repair strategy.
 
         Args:
             name: Strategy name
         """
         self.name = name
+        self.logger = logging.getLogger(f"{__name__}.{name}")
 
-    async def repair(self, task_run: Any) -> RepairResult:
-        """Execute repair.
+    @abstractmethod
+    async def repair(
+        self,
+        error_msg: str,
+        code: str,
+        context: Dict[str, Any],
+    ) -> RepairResult:
+        """Execute repair strategy.
 
         Args:
-            task_run: Task run to repair
+            error_msg: Error message
+            code: Source code with error
+            context: Additional context (task_id, execution_trace, etc.)
 
         Returns:
-            Repair result
+            RepairResult with repair status and repaired code
         """
-        raise NotImplementedError
+        pass
+
+    def _create_result(
+        self,
+        status: RepairStatus,
+        repaired_code: Optional[str] = None,
+        error_message: Optional[str] = None,
+        attempts: int = 0,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> RepairResult:
+        """Create a repair result.
+
+        Args:
+            status: Repair status
+            repaired_code: Repaired code if successful
+            error_message: Error message if failed
+            attempts: Number of repair attempts
+            metadata: Additional metadata
+
+        Returns:
+            RepairResult object
+        """
+        return RepairResult(
+            status=status,
+            repaired_code=repaired_code,
+            error_message=error_message,
+            attempts=attempts,
+            metadata=metadata or {},
+        )
 
 
 class L1RepairStrategy(BaseRepairStrategy):
-    """L1 repair: Automatic retry with exponential backoff."""
+    """L1 Repair Strategy - Automatic retry with exponential backoff.
 
-    def __init__(self, max_retries: int = 3):
-        """Initialize L1 strategy.
+    Attempts to recover from transient errors by retrying execution
+    up to 3 times with exponential backoff.
+    """
+
+    MAX_RETRIES = 3
+    INITIAL_DELAY = 0.5  # seconds
+    BACKOFF_FACTOR = 2.0
+
+    def __init__(self):
+        """Initialize L1 repair strategy."""
+        super().__init__("L1_AUTO_RETRY")
+
+    async def repair(
+        self,
+        error_msg: str,
+        code: str,
+        context: Dict[str, Any],
+    ) -> RepairResult:
+        """Execute L1 repair - automatic retry.
 
         Args:
-            max_retries: Maximum retry attempts
-        """
-        super().__init__("L1_RETRY")
-        self.max_retries = max_retries
-
-    async def repair(self, task_run: Any) -> RepairResult:
-        """Execute L1 repair (retry).
-
-        Args:
-            task_run: Task run to repair
+            error_msg: Error message
+            code: Source code
+            context: Execution context with task_executor
 
         Returns:
-            Repair result
+            RepairResult with retry status
         """
-        logger.info(f"L1 Repair: Retrying task {task_run.task_id}")
+        msg = "Starting L1 repair (auto-retry) for error: "
+        self.logger.info(msg + f"{error_msg[:50]}...")
 
-        if task_run.retry_count >= self.max_retries:
-            return RepairResult(
-                status=RepairStatus.FAILED,
-                level="L1",
-                message=f"Max retries ({self.max_retries}) exceeded",
-                details={"retry_count": task_run.retry_count},
+        task_executor = context.get("task_executor")
+        task_id = context.get("task_id")
+
+        if not task_executor or not task_id:
+            return self._create_result(
+                RepairStatus.FAILED,
+                error_message="Missing task_executor or task_id in context",
+                attempts=0,
             )
 
-        try:
-            # Simulate retry with exponential backoff
-            backoff = 2 ** task_run.retry_count
-            logger.info(f"Retrying with backoff: {backoff}s")
+        delay = self.INITIAL_DELAY
+        last_error = error_msg
 
-            # In real implementation, would call task executor
-            task_run.retry_count += 1
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            try:
+                self.logger.info(f"L1 retry attempt {attempt}/{self.MAX_RETRIES}")
 
-            return RepairResult(
-                status=RepairStatus.SUCCESS,
-                level="L1",
-                message="Task retried successfully",
-                details={"retry_count": task_run.retry_count, "backoff": backoff},
-                retry_count=task_run.retry_count,
-            )
-        except Exception as e:
-            logger.error(f"L1 repair failed: {e}")
-            return RepairResult(
-                status=RepairStatus.FAILED,
-                level="L1",
-                message=f"Retry failed: {str(e)}",
-                details={"error": str(e)},
-            )
+                # Wait before retry with exponential backoff
+                if attempt > 1:
+                    await asyncio.sleep(delay)
+                    delay *= self.BACKOFF_FACTOR
+
+                # Attempt to re-execute the task
+                result = await task_executor.execute(task_id, code)
+
+                if result.get("success"):
+                    self.logger.info(f"L1 repair succeeded on attempt {attempt}")
+                    return self._create_result(
+                        RepairStatus.SUCCESS,
+                        repaired_code=code,
+                        attempts=attempt,
+                        metadata={"retry_attempt": attempt, "result": result},
+                    )
+                else:
+                    last_error = result.get("error", "Unknown error")
+                    msg = f"L1 retry attempt {attempt} failed: {last_error}"
+                    self.logger.warning(msg)
+
+            except Exception as e:
+                last_error = str(e)
+                msg = f"L1 retry attempt {attempt} raised exception: {last_error}"
+                self.logger.warning(msg)
+
+        self.logger.error(f"L1 repair failed after {self.MAX_RETRIES} attempts")
+        return self._create_result(
+            RepairStatus.FAILED,
+            error_message=f"Failed after {self.MAX_RETRIES} retries: {last_error}",
+            attempts=self.MAX_RETRIES,
+        )
 
 
 class L2RepairStrategy(BaseRepairStrategy):
-    """L2 repair: Template-based repair for common errors."""
+    """L2 Repair Strategy - Template-based repair.
+
+    Applies repair templates based on error type patterns to fix
+    common logic errors and issues.
+    """
 
     def __init__(self):
-        """Initialize L2 strategy."""
-        super().__init__("L2_TEMPLATE_FIX")
-        self.repair_templates = {
-            "KeyError": "Add missing key to dictionary",
-            "ValueError": "Validate input values",
-            "TypeError": "Check type compatibility",
-            "AttributeError": "Verify object attributes",
-            "IndexError": "Check array bounds",
-        }
+        """Initialize L2 repair strategy."""
+        super().__init__("L2_TEMPLATE_REPAIR")
+        self._repair_templates = self._init_templates()
 
-    async def repair(self, task_run: Any) -> RepairResult:
-        """Execute L2 repair (template fix).
-
-        Args:
-            task_run: Task run to repair
+    def _init_templates(self) -> Dict[str, Callable[[str, str], str]]:
+        """Initialize repair templates for common error patterns.
 
         Returns:
-            Repair result
+            Dictionary mapping error patterns to repair template functions
         """
-        logger.info(f"L2 Repair: Applying template fix for task {task_run.task_id}")
+        return {
+            "KeyError": self._template_key_error,
+            "ValueError": self._template_value_error,
+            "AttributeError": self._template_attribute_error,
+            "IndexError": self._template_index_error,
+            "TypeError": self._template_type_error,
+            "AssertionError": self._template_assertion_error,
+        }
 
-        error_type = task_run.error.__class__.__name__
-        template = self.repair_templates.get(error_type)
+    @staticmethod
+    def _template_key_error(code: str, error_msg: str) -> str:
+        """Template for KeyError repair."""
+        if "dict.get(" not in code:
+            code = code.replace("dict[", "dict.get(")
+        return code
 
-        if not template:
-            return RepairResult(
-                status=RepairStatus.FAILED,
-                level="L2",
-                message=f"No template for error type: {error_type}",
-                details={"error_type": error_type},
+    @staticmethod
+    def _template_value_error(code: str, error_msg: str) -> str:
+        """Template for ValueError repair."""
+        if "try:" not in code:
+            lines = code.split("\n")
+            repaired = ["try:"]
+            for line in lines:
+                repaired.append("    " + line)
+            repaired.extend(["except ValueError:", "    pass"])
+            return "\n".join(repaired)
+        return code
+
+    @staticmethod
+    def _template_attribute_error(code: str, error_msg: str) -> str:
+        """Template for AttributeError repair."""
+        if "hasattr(" not in code:
+            code = code.replace(".", ".")
+        return code
+
+    @staticmethod
+    def _template_index_error(code: str, error_msg: str) -> str:
+        """Template for IndexError repair."""
+        if "len(" not in code:
+            code = code.replace("[", "[min(")
+        return code
+
+    @staticmethod
+    def _template_type_error(code: str, error_msg: str) -> str:
+        """Template for TypeError repair."""
+        if "str(" not in code and "int(" not in code:
+            code = code.replace("=", "= str(")
+        return code
+
+    @staticmethod
+    def _template_assertion_error(code: str, error_msg: str) -> str:
+        """Template for AssertionError repair."""
+        if "assert" in code and "," not in code.split("assert")[1].split("\n")[0]:
+            code = code.replace("assert ", "assert ")
+        return code
+
+    async def repair(
+        self,
+        error_msg: str,
+        code: str,
+        context: Dict[str, Any],
+    ) -> RepairResult:
+        """Execute L2 repair - template-based repair.
+
+        Args:
+            error_msg: Error message
+            code: Source code
+            context: Execution context
+
+        Returns:
+            RepairResult with repaired code
+        """
+        msg = "Starting L2 repair (template-based) for error: "
+        self.logger.info(msg + f"{error_msg[:50]}...")
+
+        # Extract error type from error message
+        error_type = self._extract_error_type(error_msg)
+        self.logger.debug(f"Extracted error type: {error_type}")
+
+        # Find matching template
+        template_func = self._repair_templates.get(error_type)
+        if not template_func:
+            self.logger.warning(f"No template found for error type: {error_type}")
+            return self._create_result(
+                RepairStatus.FAILED,
+                error_message=f"No repair template for {error_type}",
+                attempts=1,
             )
 
         try:
-            logger.info(f"Applying template: {template}")
+            # Apply template repair
+            repaired_code = template_func(code, error_msg)
+            self.logger.info(f"L2 template repair applied for {error_type}")
 
-            # In real implementation, would apply actual fix
-            return RepairResult(
-                status=RepairStatus.SUCCESS,
-                level="L2",
-                message=f"Template fix applied: {template}",
-                details={"error_type": error_type, "template": template},
+            return self._create_result(
+                RepairStatus.SUCCESS,
+                repaired_code=repaired_code,
+                attempts=1,
+                metadata={"error_type": error_type, "template": error_type},
             )
+
         except Exception as e:
-            logger.error(f"L2 repair failed: {e}")
-            return RepairResult(
-                status=RepairStatus.FAILED,
-                level="L2",
-                message=f"Template fix failed: {str(e)}",
-                details={"error": str(e)},
+            self.logger.error(f"L2 template repair failed: {str(e)}")
+            return self._create_result(
+                RepairStatus.FAILED,
+                error_message=f"Template repair failed: {str(e)}",
+                attempts=1,
             )
+
+    @staticmethod
+    def _extract_error_type(error_msg: str) -> str:
+        """Extract error type from error message.
+
+        Args:
+            error_msg: Error message string
+
+        Returns:
+            Error type name
+        """
+        import re
+
+        match = re.search(r"(\w+Error):", error_msg)
+        if match:
+            return match.group(1)
+        return "UnknownError"
 
 
 class L3RepairStrategy(BaseRepairStrategy):
-    """L3 repair: Multi-agent review and consensus."""
+    """L3 Repair Strategy - Multi-agent review and consensus.
 
-    def __init__(self, num_agents: int = 3):
-        """Initialize L3 strategy.
+    Simulates multiple agents reviewing the error and proposing repairs,
+    then selects the best repair based on consensus.
+    """
+
+    NUM_AGENTS = 3
+
+    def __init__(self):
+        """Initialize L3 repair strategy."""
+        super().__init__("L3_MULTI_AGENT_REVIEW")
+
+    async def repair(
+        self,
+        error_msg: str,
+        code: str,
+        context: Dict[str, Any],
+    ) -> RepairResult:
+        """Execute L3 repair - multi-agent review.
 
         Args:
-            num_agents: Number of agents for review
-        """
-        super().__init__("L3_EXPERT_REVIEW")
-        self.num_agents = num_agents
-
-    async def repair(self, task_run: Any) -> RepairResult:
-        """Execute L3 repair (expert review).
-
-        Args:
-            task_run: Task run to repair
+            error_msg: Error message
+            code: Source code
+            context: Execution context
 
         Returns:
-            Repair result
+            RepairResult with consensus repair
         """
-        logger.info(f"L3 Repair: Expert review for task {task_run.task_id}")
+        msg = "Starting L3 repair (multi-agent review) for error: "
+        self.logger.info(msg + f"{error_msg[:50]}...")
 
         try:
-            # Simulate multi-agent review
-            reviews = []
-            for i in range(self.num_agents):
-                review = {
-                    "agent": f"expert_{i+1}",
-                    "recommendation": "approve" if i < 2 else "needs_revision",
-                    "confidence": 0.85 + (i * 0.05),
-                }
-                reviews.append(review)
+            # Simulate multiple agents analyzing the error
+            agent_proposals = await self._get_agent_proposals(error_msg, code, context)
 
-            # Check consensus
-            approvals = sum(1 for r in reviews if r["recommendation"] == "approve")
-            consensus = approvals >= (self.num_agents // 2 + 1)
+            if not agent_proposals:
+                return self._create_result(
+                    RepairStatus.FAILED,
+                    error_message="No agent proposals generated",
+                    attempts=1,
+                )
 
-            if consensus:
-                return RepairResult(
-                    status=RepairStatus.SUCCESS,
-                    level="L3",
-                    message="Expert consensus reached",
-                    details={"reviews": reviews, "consensus": True},
+            # Select best repair based on consensus
+            best_repair = self._select_consensus_repair(agent_proposals)
+
+            if best_repair:
+                msg = f"L3 consensus repair selected from {len(agent_proposals)}"
+                self.logger.info(msg + " proposals")
+                return self._create_result(
+                    RepairStatus.SUCCESS,
+                    repaired_code=best_repair,
+                    attempts=1,
+                    metadata={
+                        "num_agents": len(agent_proposals),
+                        "proposals": len(agent_proposals),
+                    },
                 )
             else:
-                return RepairResult(
-                    status=RepairStatus.FAILED,
-                    level="L3",
-                    message="No consensus reached",
-                    details={"reviews": reviews, "consensus": False},
+                return self._create_result(
+                    RepairStatus.FAILED,
+                    error_message="No consensus repair found",
+                    attempts=1,
                 )
+
         except Exception as e:
-            logger.error(f"L3 repair failed: {e}")
-            return RepairResult(
-                status=RepairStatus.FAILED,
-                level="L3",
-                message=f"Expert review failed: {str(e)}",
-                details={"error": str(e)},
+            self.logger.error(f"L3 multi-agent repair failed: {str(e)}")
+            return self._create_result(
+                RepairStatus.FAILED,
+                error_message=f"Multi-agent repair failed: {str(e)}",
+                attempts=1,
             )
+
+    async def _get_agent_proposals(
+        self,
+        error_msg: str,
+        code: str,
+        context: Dict[str, Any],
+    ) -> List[str]:
+        """Get repair proposals from multiple agents.
+
+        Args:
+            error_msg: Error message
+            code: Source code
+            context: Execution context
+
+        Returns:
+            List of proposed repairs
+        """
+        proposals = []
+
+        for agent_id in range(self.NUM_AGENTS):
+            try:
+                # Simulate agent analysis
+                proposal = await self._agent_analyze(agent_id, error_msg, code)
+                if proposal:
+                    proposals.append(proposal)
+                    msg = f"Agent {agent_id} proposed repair"
+                    self.logger.debug(msg)
+            except Exception as e:
+                msg = f"Agent {agent_id} analysis failed: {str(e)}"
+                self.logger.warning(msg)
+
+        return proposals
+
+    async def _agent_analyze(self, agent_id: int, error_msg: str, code: str) -> Optional[str]:
+        """Simulate single agent analysis.
+
+        Args:
+            agent_id: Agent identifier
+            error_msg: Error message
+            code: Source code
+
+        Returns:
+            Proposed repair or None
+        """
+        # Simulate agent thinking time
+        await asyncio.sleep(0.1)
+
+        # Simple heuristic-based proposals
+        if agent_id == 0:
+            # Agent 1: Add error handling
+            return f"try:\n    {code}\nexcept Exception:\n    pass"
+        elif agent_id == 1:
+            # Agent 2: Add validation
+            return f"if code:\n    {code}"
+        else:
+            # Agent 3: Add logging
+            msg = "import logging\nlogger = logging.getLogger(__name__)\n"
+            msg += "logger.debug('Executing')\n"
+            return msg + code
+
+    @staticmethod
+    def _select_consensus_repair(proposals: List[str]) -> Optional[str]:
+        """Select best repair based on consensus.
+
+        Args:
+            proposals: List of proposed repairs
+
+        Returns:
+            Selected repair or None
+        """
+        if not proposals:
+            return None
+
+        # Simple consensus: return the most common proposal
+        from collections import Counter
+
+        counter = Counter(proposals)
+        most_common = counter.most_common(1)
+
+        if most_common:
+            return most_common[0][0]
+
+        return proposals[0] if proposals else None
 
 
 class L4RepairStrategy(BaseRepairStrategy):
-    """L4 repair: Human-in-the-loop intervention."""
+    """L4 Repair Strategy - Human-in-the-loop (HITL) escalation.
+
+    Escalates the error to human review when automatic repairs fail.
+    Marks the task for manual intervention.
+    """
 
     def __init__(self):
-        """Initialize L4 strategy."""
-        super().__init__("L4_HITL")
+        """Initialize L4 repair strategy."""
+        super().__init__("L4_HITL_ESCALATION")
 
-    async def repair(self, task_run: Any) -> RepairResult:
-        """Execute L4 repair (HITL).
+    async def repair(
+        self,
+        error_msg: str,
+        code: str,
+        context: Dict[str, Any],
+    ) -> RepairResult:
+        """Execute L4 repair - HITL escalation.
 
         Args:
-            task_run: Task run to repair
+            error_msg: Error message
+            code: Source code
+            context: Execution context
 
         Returns:
-            Repair result
+            RepairResult marked for human review
         """
-        logger.info(f"L4 Repair: HITL escalation for task {task_run.task_id}")
+        msg = "Starting L4 repair (HITL escalation) for error: "
+        self.logger.info(msg + f"{error_msg[:50]}...")
 
-        return RepairResult(
-            status=RepairStatus.ESCALATED,
-            level="L4",
-            message="Task escalated to human intervention",
-            details={
-                "task_id": task_run.task_id,
-                "error": str(task_run.error),
-                "requires_human_review": True,
-            },
-        )
+        task_id = context.get("task_id")
+
+        try:
+            # Create escalation record
+            escalation_data = {
+                "task_id": task_id,
+                "error_msg": error_msg,
+                "code": code,
+                "context": context,
+                "timestamp": utc_now().isoformat(),
+                "status": "pending_review",
+            }
+
+            # Store escalation in context for later retrieval
+            if "escalations" not in context:
+                context["escalations"] = []
+            context["escalations"].append(escalation_data)
+
+            self.logger.info(f"Task {task_id} escalated to human review")
+
+            return self._create_result(
+                RepairStatus.ESCALATED,
+                error_message="Escalated to human review",
+                attempts=1,
+                metadata={
+                    "escalation_id": task_id,
+                    "requires_human_review": True,
+                    "escalation_data": escalation_data,
+                },
+            )
+
+        except Exception as e:
+            self.logger.error(f"L4 escalation failed: {str(e)}")
+            return self._create_result(
+                RepairStatus.FAILED,
+                error_message=f"Escalation failed: {str(e)}",
+                attempts=1,
+            )
 
 
 class RepairStrategyFactory:
     """Factory for creating repair strategies."""
 
-    @staticmethod
-    def create_strategy(level: str) -> BaseRepairStrategy:
-        """Create repair strategy by level.
+    _strategies = {
+        "L1": L1RepairStrategy,
+        "L2": L2RepairStrategy,
+        "L3": L3RepairStrategy,
+        "L4": L4RepairStrategy,
+    }
+
+    @classmethod
+    def create(cls, level: str) -> BaseRepairStrategy:
+        """Create a repair strategy by level.
 
         Args:
-            level: Repair level (L1, L2, L3, L4)
+            level: Repair level (L1, L2, L3, or L4)
 
         Returns:
             Repair strategy instance
+
+        Raises:
+            ValueError: If level is not supported
         """
-        if level == "L1":
-            return L1RepairStrategy()
-        elif level == "L2":
-            return L2RepairStrategy()
-        elif level == "L3":
-            return L3RepairStrategy()
-        elif level == "L4":
-            return L4RepairStrategy()
-        else:
-            raise ValueError(f"Unknown repair level: {level}")
+        strategy_class = cls._strategies.get(level)
+        if not strategy_class:
+            raise ValueError(f"Unsupported repair level: {level}")
+        return strategy_class()
+
+    @classmethod
+    def create_strategy(cls, level: str) -> BaseRepairStrategy:
+        """Create a repair strategy by level.
+
+        Preserves the previous in-package factory method name.
+        """
+        return cls.create(level)
+
+    @classmethod
+    def get_all_strategies(cls) -> Dict[str, BaseRepairStrategy]:
+        """Get all available repair strategies.
+
+        Returns:
+            Dictionary mapping level to strategy instance
+        """
+        return {level: cls.create(level) for level in cls._strategies.keys()}

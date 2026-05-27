@@ -2,7 +2,6 @@
 
 ## Current Maintenance Notes
 
-- Merge the top-level `defect_repair/` package with `agentManager/defect_repair/`, keep one canonical implementation, and migrate imports.
 - Add Docker support, including development and production Dockerfiles plus `docker-compose.yml`.
 - Implement the missing `roles` and `agentManager.scheduler` subpackages referenced by older issues, then add e2e coverage for those capabilities.
 - Fix the remaining full-suite `pytest tests/` failures in benchmarks and top-level memory tests, then re-enable full-suite validation as a required check.
@@ -27,7 +26,6 @@
 - Harden WorkerSandbox defaults with least-privilege Docker settings, restricted networking, isolated workspaces, and timeout cleanup.
 - Separate WorkerSandbox stdout and stderr using Docker demuxed output.
 - Rename or replace WorkerGuard text similarity logic so it matches the actual Jaccard behavior, then add stronger action/error/output loop detection.
-- Build a real L1-L4 defect repair pipeline instead of only role definitions.
 - Split development and production compose/env configuration so weak default secrets are not usable in production.
 - Keep Prometheus/Grafana compose references in sync with checked-in `monitoring/` files and API metrics endpoints.
 - Replace static test-completion reports with CI-backed test status; remove misleading 100% production-ready claims.

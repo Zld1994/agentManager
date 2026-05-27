@@ -9,26 +9,27 @@ Tests cover:
 - Statistics and reporting
 """
 
-import pytest
 import asyncio
 from datetime import datetime
-from unittest.mock import Mock, AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from defect_repair.repair_strategies import (
+import pytest
+
+from agentManager.defect_repair.classifier import DefectClassifier, SeverityLevel
+from agentManager.defect_repair.repair_pipeline import (
+    DefectRepairPipeline,
+    RepairExperience,
+    TaskRun,
+)
+from agentManager.defect_repair.repair_strategies import (
     L1RepairStrategy,
     L2RepairStrategy,
     L3RepairStrategy,
     L4RepairStrategy,
-    RepairStatus,
     RepairResult,
+    RepairStatus,
     RepairStrategyFactory,
 )
-from defect_repair.repair_pipeline import (
-    DefectRepairPipeline,
-    TaskRun,
-    RepairExperience,
-)
-from defect_repair.classifier import DefectClassifier, SeverityLevel
 
 
 class TestL1RepairStrategy:
@@ -44,18 +45,18 @@ class TestL1RepairStrategy:
         """Test L1 repair succeeds on retry."""
         mock_executor = AsyncMock()
         mock_executor.execute.return_value = {"success": True}
-        
+
         context = {
             "task_executor": mock_executor,
             "task_id": "task_1",
         }
-        
+
         result = await strategy.repair(
             "TimeoutError: execution timeout",
             "code_here()",
             context,
         )
-        
+
         assert result.status == RepairStatus.SUCCESS
         assert result.attempts == 1
         assert mock_executor.execute.called
@@ -65,18 +66,18 @@ class TestL1RepairStrategy:
         """Test L1 repair fails after max retries."""
         mock_executor = AsyncMock()
         mock_executor.execute.return_value = {"success": False, "error": "Still failing"}
-        
+
         context = {
             "task_executor": mock_executor,
             "task_id": "task_1",
         }
-        
+
         result = await strategy.repair(
             "TimeoutError: execution timeout",
             "code_here()",
             context,
         )
-        
+
         assert result.status == RepairStatus.FAILED
         assert result.attempts == strategy.MAX_RETRIES
         assert mock_executor.execute.call_count == strategy.MAX_RETRIES
@@ -89,7 +90,7 @@ class TestL1RepairStrategy:
             "code_here()",
             {},
         )
-        
+
         assert result.status == RepairStatus.FAILED
         assert "Missing" in result.error_message
 
@@ -110,7 +111,7 @@ class TestL2RepairStrategy:
             "value = my_dict['missing_key']",
             {},
         )
-        
+
         assert result.status == RepairStatus.SUCCESS
         assert result.repaired_code is not None
         assert result.attempts == 1
@@ -123,7 +124,7 @@ class TestL2RepairStrategy:
             "x = int('not_a_number')",
             {},
         )
-        
+
         assert result.status == RepairStatus.SUCCESS
         assert result.repaired_code is not None
 
@@ -135,7 +136,7 @@ class TestL2RepairStrategy:
             "some_code()",
             {},
         )
-        
+
         assert result.status == RepairStatus.FAILED
         assert "No repair template" in result.error_message
 
@@ -143,10 +144,10 @@ class TestL2RepairStrategy:
         """Test error type extraction."""
         error_type = strategy._extract_error_type("KeyError: 'key'")
         assert error_type == "KeyError"
-        
+
         error_type = strategy._extract_error_type("ValueError: invalid")
         assert error_type == "ValueError"
-        
+
         error_type = strategy._extract_error_type("Unknown error")
         assert error_type == "UnknownError"
 
@@ -167,7 +168,7 @@ class TestL3RepairStrategy:
             "x = int(user_input)",
             {},
         )
-        
+
         assert result.status == RepairStatus.SUCCESS
         assert result.repaired_code is not None
         assert result.metadata.get("num_agents") > 0
@@ -180,7 +181,7 @@ class TestL3RepairStrategy:
             "try:\n    code\nexcept:\n    pass",
             "if code:\n    code",
         ]
-        
+
         consensus = strategy._select_consensus_repair(proposals)
         assert consensus is not None
         # Most common proposal should be selected
@@ -205,13 +206,13 @@ class TestL4RepairStrategy:
     async def test_l4_escalation(self, strategy):
         """Test L4 escalates to human review."""
         context = {"task_id": "task_1", "escalations": []}
-        
+
         result = await strategy.repair(
             "ArchitectureError: design issue",
             "complex_code()",
             context,
         )
-        
+
         assert result.status == RepairStatus.ESCALATED
         assert result.metadata.get("requires_human_review") is True
         assert len(context["escalations"]) == 1
@@ -220,13 +221,13 @@ class TestL4RepairStrategy:
     async def test_l4_escalation_data(self, strategy):
         """Test L4 creates proper escalation data."""
         context = {"task_id": "task_1"}
-        
+
         result = await strategy.repair(
             "ArchitectureError: design issue",
             "complex_code()",
             context,
         )
-        
+
         escalation_data = result.metadata.get("escalation_data")
         assert escalation_data is not None
         assert escalation_data["task_id"] == "task_1"
@@ -285,7 +286,7 @@ class TestDefectClassifier:
             "SyntaxError: invalid syntax",
             "if x",
         )
-        
+
         assert repair_level.value == "syntax_type_error"
         assert severity in [SeverityLevel.HIGH, SeverityLevel.CRITICAL]
 
@@ -295,7 +296,7 @@ class TestDefectClassifier:
             "AssertionError: assertion failed",
             "assert x > 0",
         )
-        
+
         assert repair_level.value == "logic_error"
 
     def test_classify_performance_error(self, classifier):
@@ -304,7 +305,7 @@ class TestDefectClassifier:
             "TimeoutError: execution timeout",
             "while True: pass",
         )
-        
+
         assert repair_level.value == "performance_issue"
 
     def test_extract_error_type(self, classifier):
@@ -327,7 +328,7 @@ class TestDefectRepairPipeline:
         mock_executor = AsyncMock()
         mock_recovery = AsyncMock()
         mock_memory = Mock()
-        
+
         return DefectRepairPipeline(
             task_executor=mock_executor,
             recovery_engine=mock_recovery,
@@ -338,32 +339,32 @@ class TestDefectRepairPipeline:
     async def test_pipeline_repair_success(self, pipeline):
         """Test pipeline executes successful repair."""
         pipeline.task_executor.execute = AsyncMock(return_value={"success": True})
-        
+
         task_run = TaskRun(
             task_id="task_1",
             code="x = 1",
             error_msg="TimeoutError: timeout",
             execution_trace="trace",
         )
-        
+
         status, repaired_code = await pipeline.repair(task_run)
-        
+
         assert status == RepairStatus.SUCCESS or status == RepairStatus.FAILED
 
     @pytest.mark.asyncio
     async def test_pipeline_stores_experience(self, pipeline):
         """Test pipeline stores repair experience."""
         pipeline.task_executor.execute = AsyncMock(return_value={"success": True})
-        
+
         task_run = TaskRun(
             task_id="task_1",
             code="x = 1",
             error_msg="KeyError: key",
             execution_trace="trace",
         )
-        
+
         await pipeline.repair(task_run)
-        
+
         experiences = pipeline.get_experiences()
         assert len(experiences) > 0
 
@@ -375,7 +376,7 @@ class TestDefectRepairPipeline:
     def test_pipeline_get_experience_stats(self, pipeline):
         """Test pipeline returns experience statistics."""
         stats = pipeline.get_experience_stats()
-        
+
         assert "total_repairs" in stats
         assert "successful" in stats
         assert "failed" in stats
@@ -385,15 +386,15 @@ class TestDefectRepairPipeline:
     async def test_pipeline_error_handling(self, pipeline):
         """Test pipeline handles errors gracefully."""
         pipeline.task_executor.execute = AsyncMock(side_effect=Exception("Test error"))
-        
+
         task_run = TaskRun(
             task_id="task_1",
             code="x = 1",
             error_msg="Error: test",
             execution_trace="trace",
         )
-        
+
         status, repaired_code = await pipeline.repair(task_run)
-        
+
         assert status == RepairStatus.FAILED
         assert repaired_code is None

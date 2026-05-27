@@ -9,17 +9,23 @@ Supports 4 repair levels:
 """
 
 import logging
-from enum import Enum
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import List, Dict, Optional, Any
 from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
+def utc_now() -> datetime:
+    """Return the current UTC time with timezone information."""
+    return datetime.now(timezone.utc)
+
+
 class RepairLevel(Enum):
     """Repair level classification for defects."""
+
     L1_SYNTAX = "syntax_type_error"
     L2_LOGIC = "logic_error"
     L3_PERFORMANCE = "performance_issue"
@@ -29,13 +35,14 @@ class RepairLevel(Enum):
 @dataclass
 class DefectInfo:
     """Information about a detected defect."""
+
     task_id: str
     error_msg: str
     code_context: str
     execution_trace: str
     repair_level: RepairLevel
     severity: int  # 1-5 scale
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=utc_now)
     repair_attempts: int = 0
     last_repair_result: Optional[str] = None
 
@@ -125,9 +132,7 @@ class DefectRepairEngine:
         logger.info("L1 syntax repair completed")
         return repaired
 
-    def repair_l2_logic(
-        self, code: str, test_cases: List[str], error_msg: str
-    ) -> str:
+    def repair_l2_logic(self, code: str, test_cases: List[str], error_msg: str) -> str:
         """
         Repair L2 logic errors using test cases.
 
@@ -203,11 +208,14 @@ class DefectRepairEngine:
 
         try:
             # Publish repair start event
-            self.event_bus.publish("repair_started", {
-                "task_id": task_id,
-                "level": defect_info.repair_level.value,
-                "severity": defect_info.severity
-            })
+            self.event_bus.publish(
+                "repair_started",
+                {
+                    "task_id": task_id,
+                    "level": defect_info.repair_level.value,
+                    "severity": defect_info.severity,
+                },
+            )
 
             # Execute appropriate repair level
             if defect_info.repair_level == RepairLevel.L1_SYNTAX:
@@ -230,21 +238,21 @@ class DefectRepairEngine:
             self.checkpoint_manager.save(f"repair_{task_id}", defect_info)
 
             # Publish repair completed event
-            self.event_bus.publish("repair_completed", {
-                "task_id": task_id,
-                "level": defect_info.repair_level.value,
-                "attempts": defect_info.repair_attempts
-            })
+            self.event_bus.publish(
+                "repair_completed",
+                {
+                    "task_id": task_id,
+                    "level": defect_info.repair_level.value,
+                    "attempts": defect_info.repair_attempts,
+                },
+            )
 
             logger.info(f"Repair executed successfully for task {task_id}")
             return True
 
         except Exception as e:
             logger.error(f"Repair execution failed for task {task_id}: {str(e)}")
-            self.event_bus.publish("repair_failed", {
-                "task_id": task_id,
-                "error": str(e)
-            })
+            self.event_bus.publish("repair_failed", {"task_id": task_id, "error": str(e)})
             return False
 
     def get_repair_history(self, task_id: str) -> List[DefectInfo]:
