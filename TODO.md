@@ -34,19 +34,20 @@
 
 **Verification completed (2026-05-29)**:
 - `python -m pytest tests/e2e/ -q --no-cov` - 7 passed, 1 skipped after moving e2e temp files to a repo-local ignored test artifact directory.
+- Installed Python 3.12.10 with `winget install Python.Python.3.12` and created `.venv312`.
+- `.venv312\Scripts\python.exe -m pip install -e ".[dev]"` - completed successfully with Python 3.12 wheels for `pydantic-core`.
+- `.venv312\Scripts\python.exe -m pytest tests/unit/test_api.py -q --no-cov` - 28 passed, 1 warning.
+- `.venv312\Scripts\python.exe -m pytest` - 530 passed, 1 warning, 85% total coverage.
 
 **Remaining blockers (2026-05-28)**:
 - `tests/unit/test_api.py` is not verified locally because this machine only has Python 3.15. Installing FastAPI pulls `pydantic-core`, which has no usable wheel here and fails to compile without MSVC `link.exe`.
 - Full `pytest` is not verified locally until the API dependency blocker is resolved. Recommended fix: run tests in a Python 3.11/3.12 virtual environment or CI image.
 - Docker/Compose validation was static only because Docker is unavailable in this shell.
 
-**Remaining blockers (2026-05-29)**:
-- Python 3.12 is not installed on this machine (`py -3.12 --version` reports no suitable runtime), so `.venv312`, `tests/unit/test_api.py`, and the complete default `pytest` run remain unverified locally until Python 3.12 is installed or CI runs them.
 - Docker/Compose validation is still blocked locally. Windows PowerShell has no `docker` command. WSL `Ubuntu-24.04` is running and has Docker Engine CLI `29.1.3`, but neither `docker compose` nor `docker-compose` is installed. A direct production image build reached the Docker daemon, then failed while pulling `python:3.11-slim` from Docker Hub with a TLS handshake timeout. Required follow-up: install Docker Compose v2 in WSL or expose Docker Desktop Compose on Windows, and ensure Docker Hub registry access/proxy settings work.
 
 ## Pending Fixes From Obsidian Review
 
-- Run `tests/unit/test_api.py` and the complete default `pytest` suite in a supported Python environment (3.11/3.12 recommended).
 - Validate Docker Compose configuration with `docker compose config` after Docker Compose v2 is available in Windows or WSL and Docker Hub image pulls work.
 - Ensure future static completion reports are generated from CI-backed test status rather than hand-written point-in-time claims.
 - Continue hardening WorkerSandbox beyond current defaults: isolated per-task workspaces, stricter timeout cleanup, and production container policy review.

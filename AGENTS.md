@@ -144,9 +144,9 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
 - `README.md` appears to contain mojibake in some Chinese text. Do not rewrite it as part of
   unrelated tasks.
 - `TODO.md` tracks current follow-up work and local verification blockers.
-- Local API tests may fail on Python 3.15 because FastAPI depends on `pydantic-core`, which may
-  require MSVC `link.exe` when no wheel is available. Prefer Python 3.11/3.12 or CI for full API
-  verification.
+- Python 3.12 is the current local verification path. A repo-local `.venv312` may exist and can run
+  `tests/unit/test_api.py` and the default `pytest` suite. Python 3.15 remains unsuitable for full
+  FastAPI verification because dependency wheels may be unavailable.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
   may be generated locally. Avoid editing generated metadata by hand unless packaging behavior is
   the target of the task.

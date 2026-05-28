@@ -158,7 +158,7 @@ class WorkflowHarness:
     sandbox: StubWorkerSandbox
     task_executor: TaskExecutor
     recovery_engine: RecoveryEngine
-    engineering_memory: EngineeringMemory
+    engineering_memory: "InMemoryEngineeringMemory"
     coordinator: WorkflowCoordinator
     workflow_id: str = "wf-e2e"
 

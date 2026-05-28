@@ -7,6 +7,7 @@ import asyncio
 import json
 import pytest
 import tempfile
+import uuid
 from pathlib import Path
 from datetime import datetime
 
@@ -16,6 +17,13 @@ from agentManager.memory import (
     EngineeringMemory,
     MemoryBackend,
 )
+
+
+def _memory_temp_dir() -> Path:
+    """Create a memory test directory without cleanup side effects."""
+    path = Path(tempfile.gettempdir()) / "agentmanager-memory-system" / uuid.uuid4().hex
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 class TestSessionMemory:
@@ -131,9 +139,8 @@ class TestProjectMemory:
     @pytest.fixture
     def project_memory(self):
         """Create a ProjectMemory instance with temp database."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "test_project.db"
-            yield ProjectMemory(str(db_path))
+        db_path = _memory_temp_dir() / "test_project.db"
+        yield ProjectMemory(str(db_path))
 
     @pytest.mark.asyncio
     async def test_put_and_get(self, project_memory):
@@ -145,17 +152,17 @@ class TestProjectMemory:
     @pytest.mark.asyncio
     async def test_persistence(self):
         """Test that data persists across instances."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "test_persist.db"
+        tmpdir = _memory_temp_dir()
+        db_path = tmpdir / "test_persist.db"
 
-            # First instance
-            pm1 = ProjectMemory(str(db_path))
-            await pm1.put("project_ns", "key1", "value1")
+        # First instance
+        pm1 = ProjectMemory(str(db_path))
+        await pm1.put("project_ns", "key1", "value1")
 
-            # Second instance with same database
-            pm2 = ProjectMemory(str(db_path))
-            result = await pm2.get("project_ns", "key1")
-            assert result == "value1"
+        # Second instance with same database
+        pm2 = ProjectMemory(str(db_path))
+        result = await pm2.get("project_ns", "key1")
+        assert result == "value1"
 
     @pytest.mark.asyncio
     async def test_delete(self, project_memory):
@@ -216,9 +223,8 @@ class TestEngineeringMemory:
     @pytest.fixture
     def engineering_memory(self):
         """Create an EngineeringMemory instance with temp database."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "test_engineering.db"
-            yield EngineeringMemory(str(db_path))
+        db_path = _memory_temp_dir() / "test_engineering.db"
+        yield EngineeringMemory(str(db_path))
 
     @pytest.mark.asyncio
     async def test_put_and_get(self, engineering_memory):
@@ -329,62 +335,62 @@ class TestMemoryIntegration:
         session_mem = SessionMemory(default_ttl=3600)
         
         # Project memory for project context
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_db = Path(tmpdir) / "project.db"
-            project_mem = ProjectMemory(str(project_db))
-            
-            # Engineering memory for knowledge base
-            eng_db = Path(tmpdir) / "engineering.db"
-            eng_mem = EngineeringMemory(str(eng_db))
-            
-            # Store session data
-            await session_mem.put("session_1", "current_task", "debugging")
-            
-            # Store project context
-            await project_mem.put("project_1", "config", {
-                "name": "TestProject",
-                "version": "1.0"
-            })
-            
-            # Store engineering knowledge
-            await eng_mem.put("knowledge", "error_pattern_1", {
-                "content": "Timeout errors in database connections",
-                "type": "error_pattern",
-                "tags": ["database", "timeout"]
-            })
-            
-            # Verify all layers
-            session_data = await session_mem.get("session_1", "current_task")
-            assert session_data == "debugging"
-            
-            project_data = await project_mem.get("project_1", "config")
-            assert project_data["name"] == "TestProject"
-            
-            eng_data = await eng_mem.get("knowledge", "error_pattern_1")
-            assert eng_data["type"] == "error_pattern"
+        tmpdir = _memory_temp_dir()
+        project_db = tmpdir / "project.db"
+        project_mem = ProjectMemory(str(project_db))
+
+        # Engineering memory for knowledge base
+        eng_db = tmpdir / "engineering.db"
+        eng_mem = EngineeringMemory(str(eng_db))
+
+        # Store session data
+        await session_mem.put("session_1", "current_task", "debugging")
+
+        # Store project context
+        await project_mem.put("project_1", "config", {
+            "name": "TestProject",
+            "version": "1.0"
+        })
+
+        # Store engineering knowledge
+        await eng_mem.put("knowledge", "error_pattern_1", {
+            "content": "Timeout errors in database connections",
+            "type": "error_pattern",
+            "tags": ["database", "timeout"]
+        })
+
+        # Verify all layers
+        session_data = await session_mem.get("session_1", "current_task")
+        assert session_data == "debugging"
+
+        project_data = await project_mem.get("project_1", "config")
+        assert project_data["name"] == "TestProject"
+
+        eng_data = await eng_mem.get("knowledge", "error_pattern_1")
+        assert eng_data["type"] == "error_pattern"
 
     @pytest.mark.asyncio
     async def test_namespace_isolation_across_layers(self):
         """Test that namespaces are properly isolated across layers."""
         session_mem = SessionMemory()
         
-        with tempfile.TemporaryDirectory() as tmpdir:
-            project_mem = ProjectMemory(str(Path(tmpdir) / "project.db"))
-            eng_mem = EngineeringMemory(str(Path(tmpdir) / "eng.db"))
-            
-            # Store same key in different namespaces
-            await session_mem.put("ns1", "key", "session_value_1")
-            await session_mem.put("ns2", "key", "session_value_2")
-            
-            await project_mem.put("ns1", "key", "project_value_1")
-            await project_mem.put("ns2", "key", "project_value_2")
-            
-            # Verify isolation
-            assert await session_mem.get("ns1", "key") == "session_value_1"
-            assert await session_mem.get("ns2", "key") == "session_value_2"
-            
-            assert await project_mem.get("ns1", "key") == "project_value_1"
-            assert await project_mem.get("ns2", "key") == "project_value_2"
+        tmpdir = _memory_temp_dir()
+        project_mem = ProjectMemory(str(tmpdir / "project.db"))
+        eng_mem = EngineeringMemory(str(tmpdir / "eng.db"))
+
+        # Store same key in different namespaces
+        await session_mem.put("ns1", "key", "session_value_1")
+        await session_mem.put("ns2", "key", "session_value_2")
+
+        await project_mem.put("ns1", "key", "project_value_1")
+        await project_mem.put("ns2", "key", "project_value_2")
+
+        # Verify isolation
+        assert await session_mem.get("ns1", "key") == "session_value_1"
+        assert await session_mem.get("ns2", "key") == "session_value_2"
+
+        assert await project_mem.get("ns1", "key") == "project_value_1"
+        assert await project_mem.get("ns2", "key") == "project_value_2"
 
     @pytest.mark.asyncio
     async def test_error_handling(self):

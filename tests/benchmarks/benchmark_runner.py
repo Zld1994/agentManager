@@ -202,7 +202,7 @@ class BenchmarkRunner:
         self._monitor_thread.start()
         
         # Run test
-        start_time = time.time()
+        start_time = time.perf_counter()
         try:
             task_count, completed, failed, latencies = test_func()
             metrics.task_count = task_count
@@ -210,7 +210,7 @@ class BenchmarkRunner:
             metrics.failed_tasks = failed
             metrics.latencies = latencies
         finally:
-            metrics.duration_seconds = time.time() - start_time
+            metrics.duration_seconds = max(time.perf_counter() - start_time, 1e-9)
             self.monitoring_active = False
             if self._monitor_thread:
                 self._monitor_thread.join(timeout=2)

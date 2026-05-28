@@ -38,6 +38,8 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
 **Purpose:** Remove the current local verification blocker by establishing a supported Python test path for API and full-suite runs.
 
+**Status (2026-05-29):** Completed locally on Python 3.12.10. `winget install Python.Python.3.12` installed Python 3.12, `.venv312` was created, `.venv312\Scripts\python.exe -m pip install -e ".[dev]"` completed successfully, `.venv312\Scripts\python.exe -m pytest tests/unit/test_api.py -q --no-cov` passed with 28 tests, and `.venv312\Scripts\python.exe -m pytest` passed with 530 tests and 85% total coverage. The run still needs normal CI confirmation, but the local Python 3.15 dependency blocker is no longer active.
+
 **Files:**
 - Modify: `.github/workflows/ci.yml`
 - Modify: `pyproject.toml`
