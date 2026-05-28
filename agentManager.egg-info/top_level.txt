@@ -1,3 +1,2 @@
 agentManager
-defect_repair
 scheduler

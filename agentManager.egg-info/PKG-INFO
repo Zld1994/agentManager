@@ -15,10 +15,11 @@ Requires-Dist: redis>=5.0.0
 Requires-Dist: prometheus-client>=0.17.0
 Requires-Dist: psutil>=5.9
 Provides-Extra: dev
+Requires-Dist: build>=1.0; extra == "dev"
 Requires-Dist: black>=23.0; extra == "dev"
 Requires-Dist: isort>=5.12; extra == "dev"
 Requires-Dist: flake8>=6.0; extra == "dev"
-Requires-Dist: mypy>=1.0; extra == "dev"
+Requires-Dist: mypy<2.0,>=1.0; extra == "dev"
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.21; extra == "dev"
 Requires-Dist: pytest-cov>=4.0; extra == "dev"
@@ -322,10 +323,11 @@ Manages task dependencies and execution order.
 from agentManager.engine import DAGEngine, DAGNode, TaskStatus
 
 engine = DAGEngine()
-node = DAGNode(node_id="task_1", task_type="type1")
-engine.add_node(node)
-engine.add_edge("task_1", "task_2")  # Auto cycle detection
-ready = engine.get_ready_nodes()
+engine.add_node(DAGNode(node_id="task_1", task_type="type1"))
+engine.add_node(DAGNode(node_id="task_2", task_type="type2"))
+engine.add_edge("task_1", "task_2")
+engine.update_node_status("task_1", TaskStatus.COMPLETED)
+ready = engine.get_ready_nodes()  # ["task_2"]
 ```
 
 **Key Features**:
@@ -344,7 +346,12 @@ from agentManager.engine import StateMachine, TaskState
 sm = StateMachine()
 sm.initialize("task_1", TaskState.PENDING)
 sm.transition("task_1", TaskState.READY)
-sm.transition("task_1", TaskState.BLOCKED_HITL)  # Emergency transition
+sm.transition("task_1", TaskState.IMPLEMENTING)
+sm.transition("task_1", TaskState.VERIFYING)
+sm.transition("task_1", TaskState.COMPLETED)
+
+sm.initialize("task_2", TaskState.READY)
+sm.transition("task_2", TaskState.BLOCKED_HITL)  # Emergency transition from a non-terminal state
 ```
 
 **Key Features**:
@@ -449,8 +456,9 @@ scheduler.mark_completed("task_1")
 
 ## 📚 Documentation
 
-- [Phase 1 Completion Report](./PHASE1_COMPLETION_REPORT.md) - Detailed Phase 1 summary
-- [Phase 1 Quick Reference](./PHASE1_QUICK_REFERENCE.md) - Quick API reference
+- [Reports Archive](./docs/reports/README.md) - Historical phase, completion, and test reports
+- [Phase 1 Completion Report](./docs/reports/PHASE1_COMPLETION_REPORT.md) - Detailed Phase 1 summary
+- [Phase 1 Quick Reference](./docs/reports/PHASE1_QUICK_REFERENCE.md) - Quick API reference
 - [API Documentation](./docs/api.md) - Full API specification (coming in Phase 2)
 
 ---

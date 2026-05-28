@@ -5,6 +5,7 @@ Provides persistent event storage, consumer groups, ACK mechanism, and event rep
 
 import json
 import logging
+import inspect
 from typing import Dict, List, Callable, Optional, Any
 from datetime import datetime, timezone
 import asyncio
@@ -167,7 +168,7 @@ class RedisStreamEventBus(BaseEventBus):
         for key in keys:
             for callback in self.subscribers.get(key, []):
                 try:
-                    if asyncio.iscoroutinefunction(callback):
+                    if inspect.iscoroutinefunction(callback):
                         await callback(event)
                     else:
                         callback(event)
