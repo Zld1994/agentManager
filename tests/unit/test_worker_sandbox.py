@@ -9,8 +9,12 @@ Tests cover:
 """
 
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 from agentManager.sandbox.worker_sandbox import WorkerSandbox, SandboxConfig
+
+
+TEST_WORKSPACE_ROOT = Path(".test-artifacts") / "worker-sandbox-unit"
 
 
 @pytest.fixture
@@ -67,6 +71,61 @@ class TestSandboxConfig:
         )
         assert config.environment == env
 
+    def test_config_creates_per_task_workspace(self):
+        """Test each task gets an isolated workspace under the sandbox root."""
+        config = SandboxConfig(worker_id="worker-1", task_id="task-42")
+        config.workspace_root = TEST_WORKSPACE_ROOT
+
+        workspace = config.task_workspace_path
+
+        assert workspace == (
+            TEST_WORKSPACE_ROOT / "worker-1" / "task-42"
+        ).resolve()
+
+    def test_config_rejects_task_workspace_escape(self):
+        """Test task identifiers cannot escape the workspace root."""
+        config = SandboxConfig(worker_id="worker-1", task_id="..\\escape")
+        config.workspace_root = TEST_WORKSPACE_ROOT
+
+        with pytest.raises(ValueError, match="task workspace"):
+            _ = config.task_workspace_path
+
+    def test_config_rejects_image_outside_allow_list(self):
+        """Test production policy rejects images outside the allow list."""
+        config = SandboxConfig(
+            worker_id="worker-1",
+            image="ubuntu:latest",
+            allowed_images=("python:3.10-slim",),
+        )
+
+        with pytest.raises(ValueError, match="not allowed"):
+            config.validate_policy()
+
+    def test_config_rejects_denied_mount_path(self):
+        """Test denied host mounts are rejected before container creation."""
+        denied = TEST_WORKSPACE_ROOT / "denied"
+        config = SandboxConfig(
+            worker_id="worker-1",
+            volumes={str(denied): {"bind": "/workspace", "mode": "rw"}},
+            denied_mounts=(str(denied),),
+        )
+
+        with pytest.raises(ValueError, match="denied mount"):
+            config.validate_policy()
+
+    def test_config_rejects_writable_mount_outside_task_workspace(self):
+        """Test writable mounts must stay inside the per-task workspace."""
+        outside = TEST_WORKSPACE_ROOT / "outside"
+        config = SandboxConfig(
+            worker_id="worker-1",
+            task_id="task-42",
+            workspace_root=TEST_WORKSPACE_ROOT / "root",
+            volumes={str(outside): {"bind": "/outside", "mode": "rw"}},
+        )
+
+        with pytest.raises(ValueError, match="outside task workspace"):
+            config.validate_policy()
+
 
 class TestContainerCreation:
     """Test container creation with security hardening."""
@@ -113,8 +172,9 @@ class TestContainerCreation:
         assert call_kwargs["memswap_limit"] == "512m"
 
     def test_create_container_with_volumes(self, sandbox_config, mock_docker_client):
-        """Test container creation with volumes."""
-        volumes = {"/data": {"bind": "/data", "mode": "rw"}}
+        """Test container creation with additional read-only volumes."""
+        host_data = TEST_WORKSPACE_ROOT / "data"
+        volumes = {str(host_data): {"bind": "/data", "mode": "ro"}}
         sandbox_config.volumes = volumes
         sandbox = WorkerSandbox(sandbox_config)
 
@@ -124,7 +184,10 @@ class TestContainerCreation:
         sandbox.create_container()
 
         call_kwargs = mock_docker_client.containers.create.call_args[1]
-        assert call_kwargs["volumes"] == volumes
+        assert call_kwargs["volumes"][str(host_data)] == {
+            "bind": "/data",
+            "mode": "ro",
+        }
 
     def test_create_container_with_environment(self, sandbox_config, mock_docker_client):
         """Test container creation with environment variables."""
@@ -139,6 +202,47 @@ class TestContainerCreation:
 
         call_kwargs = mock_docker_client.containers.create.call_args[1]
         assert call_kwargs["environment"] == env
+
+    def test_create_container_mounts_task_workspace(self, mock_docker_client):
+        """Test container creation mounts only the isolated task workspace writable."""
+        config = SandboxConfig(
+            worker_id="worker-1",
+            task_id="task-42",
+            workspace_root=TEST_WORKSPACE_ROOT,
+        )
+        sandbox = WorkerSandbox(config)
+        mock_container = MagicMock()
+        mock_docker_client.containers.create.return_value = mock_container
+
+        sandbox.create_container()
+
+        workspace = str(config.task_workspace_path)
+        call_kwargs = mock_docker_client.containers.create.call_args[1]
+        assert call_kwargs["working_dir"] == config.container_workspace
+        assert call_kwargs["volumes"][workspace] == {
+            "bind": config.container_workspace,
+            "mode": "rw",
+        }
+
+    def test_create_container_applies_container_policy(
+        self,
+        sandbox_config,
+        mock_docker_client,
+    ):
+        """Test configurable production container policy is passed to Docker."""
+        sandbox_config.network_mode = "none"
+        sandbox_config.pids_limit = 128
+        sandbox_config.read_only_rootfs = True
+        sandbox = WorkerSandbox(sandbox_config)
+        mock_container = MagicMock()
+        mock_docker_client.containers.create.return_value = mock_container
+
+        sandbox.create_container()
+
+        call_kwargs = mock_docker_client.containers.create.call_args[1]
+        assert call_kwargs["network_mode"] == "none"
+        assert call_kwargs["pids_limit"] == 128
+        assert call_kwargs["read_only"] is True
 
 
 class TestContainerExecution:
@@ -253,6 +357,37 @@ class TestContainerExecution:
         assert exit_code == 0
         assert stdout == ""
         assert stderr == ""
+
+    def test_exec_for_task_reports_timeout_cleanup(self, sandbox, mock_docker_client):
+        """Test timeout cleanup returns observable bounded cleanup status."""
+        mock_container = MagicMock()
+        mock_docker_client.containers.create.return_value = mock_container
+        mock_container.exec_run.side_effect = TimeoutError("timed out")
+
+        sandbox.create_container()
+        result = sandbox.exec_for_task("sleep 30", timeout=1)
+
+        assert result.exit_code == 124
+        assert result.timed_out is True
+        assert result.cleanup_status == "removed"
+        assert "timed out" in result.stderr
+        mock_container.kill.assert_called_once()
+        mock_container.remove.assert_called_once_with(force=True)
+
+    def test_exec_for_task_reports_cleanup_failure(self, sandbox, mock_docker_client):
+        """Test timeout cleanup failures are returned instead of swallowed."""
+        mock_container = MagicMock()
+        mock_docker_client.containers.create.return_value = mock_container
+        mock_container.exec_run.side_effect = TimeoutError("timed out")
+        mock_container.remove.side_effect = RuntimeError("remove denied")
+
+        sandbox.create_container()
+        result = sandbox.exec_for_task("sleep 30", timeout=1)
+
+        assert result.exit_code == 124
+        assert result.timed_out is True
+        assert result.cleanup_status == "failed"
+        assert "remove denied" in result.cleanup_error
 
 
 class TestContainerLifecycle:

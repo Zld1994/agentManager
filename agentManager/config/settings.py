@@ -6,6 +6,7 @@ detection for production environments.
 
 import logging
 import os
+from typing import Any
 from typing import Set
 
 logger = logging.getLogger(__name__)
@@ -73,3 +74,31 @@ def get_setting(key: str, default: str = '') -> str:
         Setting value or default
     """
     return os.getenv(key, default)
+
+
+def _parse_csv_setting(value: str) -> tuple[str, ...]:
+    """Parse a comma-separated environment setting into a tuple."""
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def _parse_bool_setting(value: str) -> bool:
+    """Parse common boolean environment values."""
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def get_sandbox_policy_settings() -> dict[str, Any]:
+    """Get production WorkerSandbox policy settings from environment variables."""
+    return {
+        "allowed_images": _parse_csv_setting(
+            os.getenv("SANDBOX_ALLOWED_IMAGES", "python:3.10-slim")
+        ),
+        "denied_mounts": _parse_csv_setting(
+            os.getenv("SANDBOX_DENIED_MOUNTS", "/var/run/docker.sock")
+        ),
+        "network_mode": os.getenv("SANDBOX_NETWORK_MODE", "none"),
+        "cpu_limit": float(os.getenv("SANDBOX_CPU_LIMIT", "1.0")),
+        "memory_limit": os.getenv("SANDBOX_MEMORY_LIMIT", "512m"),
+        "read_only_rootfs": _parse_bool_setting(
+            os.getenv("SANDBOX_READ_ONLY_ROOTFS", "true")
+        ),
+    }

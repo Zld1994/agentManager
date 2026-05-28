@@ -7,7 +7,11 @@ import pytest
 import os
 from unittest.mock import patch
 
-from agentManager.config.settings import validate_settings, WEAK_PASSWORDS
+from agentManager.config.settings import (
+    WEAK_PASSWORDS,
+    get_sandbox_policy_settings,
+    validate_settings,
+)
 
 
 class TestWeakPasswordDetection:
@@ -123,3 +127,40 @@ class TestWeakPasswordDetection:
         with patch.dict(os.environ, {}, clear=True):
             # Should not raise
             validate_settings()
+
+
+class TestSandboxPolicySettings:
+    """Test sandbox production policy settings parsing."""
+
+    def test_get_sandbox_policy_settings_defaults(self):
+        """Test secure sandbox policy defaults."""
+        with patch.dict(os.environ, {}, clear=True):
+            policy = get_sandbox_policy_settings()
+
+        assert policy["allowed_images"] == ("python:3.10-slim",)
+        assert policy["denied_mounts"] == ("/var/run/docker.sock",)
+        assert policy["network_mode"] == "none"
+        assert policy["cpu_limit"] == 1.0
+        assert policy["memory_limit"] == "512m"
+        assert policy["read_only_rootfs"] is True
+
+    def test_get_sandbox_policy_settings_from_environment(self):
+        """Test sandbox policy can be configured through environment."""
+        env_vars = {
+            "SANDBOX_ALLOWED_IMAGES": "python:3.10-slim,python:3.12-slim",
+            "SANDBOX_DENIED_MOUNTS": "/,/var/run/docker.sock",
+            "SANDBOX_NETWORK_MODE": "bridge",
+            "SANDBOX_CPU_LIMIT": "2.5",
+            "SANDBOX_MEMORY_LIMIT": "1g",
+            "SANDBOX_READ_ONLY_ROOTFS": "false",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            policy = get_sandbox_policy_settings()
+
+        assert policy["allowed_images"] == ("python:3.10-slim", "python:3.12-slim")
+        assert policy["denied_mounts"] == ("/", "/var/run/docker.sock")
+        assert policy["network_mode"] == "bridge"
+        assert policy["cpu_limit"] == 2.5
+        assert policy["memory_limit"] == "1g"
+        assert policy["read_only_rootfs"] is False
