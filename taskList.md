@@ -47,7 +47,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 - Test: full `tests/` suite
 - Document: `TODO.md` after verification status changes
 
-- [ ] Step 1: Create or select a Python 3.11/3.12 environment.
+- [x] Step 1: Create or select a Python 3.11/3.12 environment.
 
   Recommended local commands:
 
@@ -60,7 +60,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: `python --version` reports Python 3.11.x or 3.12.x, and editable install completes without building `pydantic-core` from source.
 
-- [ ] Step 2: Verify the blocked API tests first.
+- [x] Step 2: Verify the blocked API tests first.
 
   ```powershell
   python -m pytest tests/unit/test_api.py -v --no-cov
@@ -68,7 +68,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: all API tests pass. If failures occur, record the exact failing tests and fix only the API behavior or test expectation causing the failure.
 
-- [ ] Step 3: Run the default test command from `pyproject.toml`.
+- [x] Step 3: Run the default test command from `pyproject.toml`.
 
   ```powershell
   python -m pytest
@@ -76,7 +76,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: the complete suite runs with coverage. If coverage fails while tests pass, capture the coverage threshold gap separately from functional failures.
 
-- [ ] Step 4: Make CI run the same supported verification path.
+- [x] Step 4: Make CI run the same supported verification path.
 
   In `.github/workflows/ci.yml`, keep the existing Python setup but expand the job to run:
 
@@ -87,7 +87,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: unit and e2e failures are reported separately, so API regressions do not hide e2e status.
 
-- [ ] Step 5: Record verified status.
+- [x] Step 5: Record verified status.
 
   Update `TODO.md` only after the commands above have current results. Replace the Python 3.15 blocker note with the verified Python version and command output summary.
 
@@ -104,7 +104,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 - Modify or add focused tests under: `tests/e2e/`
 - Document: `TODO.md` if an environment-only limitation remains
 
-- [ ] Step 1: Reproduce the full e2e result in Python 3.11/3.12.
+- [x] Step 1: Reproduce the full e2e result in Python 3.11/3.12.
 
   ```powershell
   python -m pytest tests/e2e/ -v --no-cov
@@ -112,7 +112,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: either all e2e tests pass or failures identify specific temp-directory cleanup, timing, or platform assumptions.
 
-- [ ] Step 2: Isolate Windows temp cleanup failures.
+- [x] Step 2: Isolate Windows temp cleanup failures.
 
   Inspect fixtures in `tests/e2e/conftest.py` and replace fragile cleanup with `tmp_path` or `tmp_path_factory` owned by pytest where possible.
 
@@ -124,7 +124,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: no failure caused only by deleting temp directories after the test body already passed.
 
-- [ ] Step 3: Remove hidden runtime dependencies from e2e tests.
+- [x] Step 3: Remove hidden runtime dependencies from e2e tests.
 
   Keep tests pointed at existing modules only:
 
@@ -137,7 +137,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: e2e tests do not import missing packages or services unless the test is explicitly integration-scoped.
 
-- [ ] Step 4: Add CI e2e execution.
+- [x] Step 4: Add CI e2e execution.
 
   In `.github/workflows/ci.yml`, run e2e tests after unit tests:
 
@@ -306,7 +306,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 - Test: `tests/unit/test_worker_guard.py`
 - Document: `README.md` or `docs/api.md` if user-visible sandbox behavior changes
 
-- [ ] Step 1: Add isolated per-task workspace behavior.
+- [x] Step 1: Add isolated per-task workspace behavior.
 
   Tests should assert each task receives a unique workspace path and cannot write outside it.
 
@@ -316,7 +316,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pytest tests/unit/test_worker_sandbox.py -v --no-cov
   ```
 
-- [ ] Step 2: Enforce timeout cleanup.
+- [x] Step 2: Enforce timeout cleanup.
 
   Add tests for command timeout, process termination, and workspace cleanup. On Windows, make cleanup retry bounded and observable instead of silently failing.
 
@@ -326,7 +326,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pytest tests/unit/test_worker_sandbox.py -v --no-cov
   ```
 
-- [ ] Step 3: Add production container policy settings.
+- [x] Step 3: Add production container policy settings.
 
   Add configuration for:
 
@@ -342,7 +342,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pytest tests/unit/test_settings.py tests/unit/test_worker_sandbox.py -v --no-cov
   ```
 
-- [ ] Step 4: Keep WorkerGuard loop detection covered.
+- [x] Step 4: Keep WorkerGuard loop detection covered.
 
   Ensure hardening does not regress action/error/output loop detection.
 
@@ -365,7 +365,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 - Modify: `docs/reports/README.md`
 - Inspect historical reports under: `docs/reports/`
 
-- [ ] Step 1: Define a verification report template.
+- [x] Step 1: Define a verification report template.
 
   Add `docs/reports/verification-template.md` with required sections:
 
@@ -377,7 +377,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   - CI run URL
   - known blockers
 
-- [ ] Step 2: Add a CI status collection script.
+- [x] Step 2: Add a CI status collection script.
 
   Create `scripts/collect_ci_status.py` that reads environment variables such as `GITHUB_SHA`, `GITHUB_REF_NAME`, and `GITHUB_RUN_ID`, then writes a concise Markdown verification summary.
 
@@ -389,13 +389,13 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
   Expected result: a Markdown file is created with explicit unknown values when not running inside GitHub Actions.
 
-- [ ] Step 3: Wire the script into CI.
+- [x] Step 3: Wire the script into CI.
 
   In `.github/workflows/ci.yml`, run the script after tests and upload the summary as an artifact.
 
   Expected result: every CI run produces a machine-generated verification summary.
 
-- [ ] Step 4: Update report policy.
+- [x] Step 4: Update report policy.
 
   In `docs/reports/README.md`, state that new completion reports must cite CI run status or explicitly mark local-only verification.
 
