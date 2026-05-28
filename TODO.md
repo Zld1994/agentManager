@@ -32,11 +32,16 @@
 - `python -m pytest tests/unit/test_domain_models.py tests/unit/test_dag_engine.py -q --no-cov` - 35 passed.
 - `git diff --check` - passed, with only CRLF warnings.
 
+**Verification completed (2026-05-29)**:
+- `python -m pytest tests/e2e/ -q --no-cov` - 7 passed, 1 skipped after moving e2e temp files to a repo-local ignored test artifact directory.
+
 **Remaining blockers (2026-05-28)**:
 - `tests/unit/test_api.py` is not verified locally because this machine only has Python 3.15. Installing FastAPI pulls `pydantic-core`, which has no usable wheel here and fails to compile without MSVC `link.exe`.
 - Full `pytest` is not verified locally until the API dependency blocker is resolved. Recommended fix: run tests in a Python 3.11/3.12 virtual environment or CI image.
-- Full e2e suite is partly blocked by Windows pytest temp-directory cleanup permissions; the focused runtime workflow e2e test passes.
 - Docker/Compose validation was static only because Docker is unavailable in this shell.
+
+**Remaining blockers (2026-05-29)**:
+- Python 3.12 is not installed on this machine (`py -3.12 --version` reports no suitable runtime), so `.venv312`, `tests/unit/test_api.py`, and the complete default `pytest` run remain unverified locally until Python 3.12 is installed or CI runs them.
 
 ## Pending Fixes From Obsidian Review
 
