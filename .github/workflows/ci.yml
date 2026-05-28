@@ -59,6 +59,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Run unit tests with coverage
+        id: unit-tests
         run: |
           pytest tests/unit/ -v --cov=agentManager --cov-report=term-missing --cov-report=xml
         env:
@@ -66,11 +67,13 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentmanager_test
 
       - name: Check coverage threshold
+        id: coverage-threshold
         if: matrix.python-version == '3.10'
         run: |
           coverage report --fail-under=80
 
       - name: Run e2e tests
+        id: e2e-tests
         run: |
           pytest tests/e2e/ -v --no-cov
         env:
@@ -78,12 +81,34 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentmanager_test
 
       - name: Run mypy type checking
+        id: mypy
         run: |
           mypy agentManager/ --ignore-missing-imports || true
 
       - name: Run flake8 code style check
+        id: flake8
         run: |
           flake8 agentManager/ --max-line-length=100 --count --statistics
+
+      - name: Generate verification summary
+        if: always()
+        run: |
+          python scripts/collect_ci_status.py \
+            --output ".test-artifacts/verification-summary-python-${{ matrix.python-version }}.md" \
+            --python-version "${{ matrix.python-version }}" \
+            --command-result "${{ steps.unit-tests.outcome || 'unknown' }}::pytest tests/unit/ -v --cov=agentManager --cov-report=term-missing --cov-report=xml::unit tests with coverage" \
+            --command-result "${{ steps.coverage-threshold.outcome || 'skipped' }}::coverage report --fail-under=80::coverage threshold on Python 3.10 only" \
+            --command-result "${{ steps.e2e-tests.outcome || 'unknown' }}::pytest tests/e2e/ -v --no-cov::end-to-end tests" \
+            --command-result "${{ steps.mypy.outcome || 'unknown' }}::mypy agentManager/ --ignore-missing-imports || true::type checking is advisory" \
+            --command-result "${{ steps.flake8.outcome || 'unknown' }}::flake8 agentManager/ --max-line-length=100 --count --statistics::code style check"
+
+      - name: Upload verification summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification-summary-python-${{ matrix.python-version }}
+          path: .test-artifacts/verification-summary-python-${{ matrix.python-version }}.md
+          if-no-files-found: error
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.10'

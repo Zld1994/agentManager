@@ -3,6 +3,16 @@
 Historical project reports and completion notes are collected here to keep the
 repository root focused on active entry-point documents.
 
+## Verification Reports
+
+New completion and verification reports must cite CI-backed evidence when they
+make pass/fail claims. Link the relevant GitHub Actions run or attach the
+generated verification summary artifact from CI.
+
+If CI evidence is unavailable, mark the report as `local-only verification` and
+list the commands, Python version, commit SHA, and known blockers explicitly.
+Use [Verification Report Template](./verification-template.md) for new reports.
+
 ## Project Summaries
 
 - [Branch Merge Summary](./BRANCH_MERGE_SUMMARY.md)

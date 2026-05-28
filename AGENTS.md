@@ -27,6 +27,7 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 - `tests/e2e/`: end-to-end and performance tests.
 - `tests/benchmarks/`: benchmark runner, report generation, and benchmark tests.
 - `docs/api.md`: REST API documentation.
+- `docs/reports/`: archived reports plus the CI-backed verification report template.
 
 ## Setup
 
@@ -106,6 +107,12 @@ black .
 isort .
 ```
 
+Generate a local verification summary artifact when updating report tooling:
+
+```bash
+python scripts/collect_ci_status.py --output .test-artifacts/verification-summary.md
+```
+
 ## Coding Guidelines
 
 - Keep Python compatibility at `>=3.10`.
@@ -129,6 +136,8 @@ isort .
   explicitly marked/integration-scoped.
 - For benchmark tooling changes, run the focused benchmark test module rather than the entire
   benchmark suite first.
+- Completion and verification reports must cite a GitHub Actions run or be clearly marked as
+  local-only verification. Use `docs/reports/verification-template.md` for new reports.
 
 ## Current Project Notes
 
