@@ -1,19 +1,26 @@
 """E2E tests for execution, recovery, and engineering memory loop integration."""
 
+import asyncio
 from dataclasses import dataclass
 from enum import Enum
-import asyncio
 from typing import Any, Dict, List, Optional
 
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine, TaskState
-from agentManager.runtime.execution_context import ExecutionContext, ExecutionStatus
-from agentManager.runtime.task_executor import CheckpointManager, TaskExecutor, WorkerSandbox
-from agentManager.runtime.workflow_coordinator import WorkflowCoordinator
+from agentManager.recovery.recovery_context import (
+    FailureType,
+    RecoveryContext,
+    RecoveryStrategy,
+)
 from agentManager.recovery.recovery_engine import RecoveryEngine
-from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy, FailureType
-from agentManager.memory.engineering_memory import EngineeringMemory
+from agentManager.runtime.execution_context import ExecutionContext, ExecutionStatus
+from agentManager.runtime.task_executor import (
+    CheckpointManager,
+    TaskExecutor,
+    WorkerSandbox,
+)
+from agentManager.runtime.workflow_coordinator import WorkflowCoordinator
 
 
 class FakeTaskStatus(str, Enum):
@@ -89,7 +96,11 @@ class InMemoryCheckpointManager(CheckpointManager):
 class StubWorkerSandbox(WorkerSandbox):
     """Deterministic worker sandbox for success/failure paths with retry support."""
 
-    def __init__(self, failing_tasks: Optional[set[str]] = None, retry_success: bool = True) -> None:
+    def __init__(
+        self,
+        failing_tasks: Optional[set[str]] = None,
+        retry_success: bool = True,
+    ) -> None:
         self.failing_tasks = failing_tasks or set()
         self.execution_order: List[str] = []
         self.attempt_counts: Dict[str, int] = {}
@@ -152,7 +163,24 @@ class WorkflowHarness:
     workflow_id: str = "wf-e2e"
 
 
-def _build_recovery_harness(db_path: str, failing_tasks: Optional[set[str]] = None, retry_success: bool = True, max_retries: int = 0) -> WorkflowHarness:
+class InMemoryEngineeringMemory:
+    """Memory backend used to verify recovery write-back in E2E tests."""
+
+    def __init__(self) -> None:
+        self.entries: Dict[str, Dict[str, Any]] = {}
+
+    async def put(self, namespace: str, key: str, value: Any) -> None:
+        self.entries.setdefault(namespace, {})[key] = value
+
+    async def get_all(self, namespace: str) -> Dict[str, Any]:
+        return dict(self.entries.get(namespace, {}))
+
+
+def _build_recovery_harness(
+    failing_tasks: Optional[set[str]] = None,
+    retry_success: bool = True,
+    max_retries: int = 0,
+) -> WorkflowHarness:
     dag = FakeDAGEngine()
     dag.add_node(
         FakeDAGNode(
@@ -194,7 +222,7 @@ def _build_recovery_harness(db_path: str, failing_tasks: Optional[set[str]] = No
         state_machine=state_machine,
         checkpoint_manager=checkpoint_manager,
     )
-    engineering_memory = EngineeringMemory(db_path=db_path)
+    engineering_memory = InMemoryEngineeringMemory()
     coordinator = WorkflowCoordinator(
         dag_engine=dag,
         scheduler=scheduler,
@@ -217,59 +245,119 @@ def _build_recovery_harness(db_path: str, failing_tasks: Optional[set[str]] = No
     )
 
 
-def test_failing_task_with_recovery_and_memory_recording(tmp_path) -> None:
-    """Test a failing task that recovers on retry, with events and memory recorded."""
-    # First harness with max_retries=0 to fail first run
-    db_path1 = str(tmp_path / "test_engineering_memory1.db")
-    harness_fail = _build_recovery_harness(db_path=db_path1, failing_tasks={"extract"}, retry_success=True, max_retries=0)
+def test_failing_task_recovers_through_recovery_engine_and_records_memory() -> None:
+    """Recover a failed task through RecoveryEngine and record the outcome."""
+    harness_fail = _build_recovery_harness(
+        failing_tasks={"extract"},
+        retry_success=True,
+        max_retries=0,
+    )
 
-    # First run - extract fails
-    result1 = asyncio.run(harness_fail.coordinator.run_workflow(workflow_id=harness_fail.workflow_id))
+    result1 = asyncio.run(
+        harness_fail.coordinator.run_workflow(workflow_id=harness_fail.workflow_id)
+    )
     assert result1.success is False
     assert "extract" in result1.failed_tasks
 
-    # Record failure in engineering memory (using put method with namespace)
-    failure_record = {
-        "type": "task_failure",
+    harness_fail.state_machine.transition(
+        "extract",
+        TaskState.BLOCKED_REPAIR,
+        "E2E recovery attempt",
+    )
+    recovery_context = RecoveryContext(
+        task_id="extract",
+        workflow_id=harness_fail.workflow_id,
+        failure_type=FailureType.TIMEOUT,
+        error_msg="task extract failed",
+        recovery_strategy=RecoveryStrategy.RETRY,
+    )
+
+    recovery_success = asyncio.run(
+        harness_fail.recovery_engine.execute_recovery(recovery_context)
+    )
+    assert recovery_success is True
+    assert harness_fail.sandbox.attempt_counts["extract"] == 2
+    assert harness_fail.state_machine.get_state("extract") == TaskState.COMPLETED
+
+    recovery_record = {
+        "type": "task_recovery",
         "task_id": "extract",
         "workflow_id": harness_fail.workflow_id,
-        "error_type": "RuntimeError",
-        "error_msg": "task extract failed",
-        "attempt": harness_fail.sandbox.attempt_counts["extract"],
-        "tags": ["failure", "task"],
-        "content": "Task extract failed on first attempt",
+        "strategy": recovery_context.recovery_strategy.value,
+        "success": recovery_success,
+        "tags": ["recovery", "task"],
+        "content": "Task extract recovered with retry strategy",
     }
-    asyncio.run(harness_fail.engineering_memory.put(
-        namespace=harness_fail.workflow_id,
-        key=f"failure:extract:0",
-        value=failure_record
-    ))
+    asyncio.run(
+        harness_fail.engineering_memory.put(
+            namespace=harness_fail.workflow_id,
+            key="recovery:extract:retry",
+            value=recovery_record,
+        )
+    )
 
-    # Second harness with max_retries=1 to test successful retry
-    db_path2 = str(tmp_path / "test_engineering_memory2.db")
-    harness_success = _build_recovery_harness(db_path=db_path2, failing_tasks={"extract"}, retry_success=True, max_retries=1)
-
-    # Second run - extract succeeds
-    result2 = asyncio.run(harness_success.coordinator.run_workflow(workflow_id=harness_success.workflow_id))
-    assert result2.success is True
-    assert result2.completed_tasks == ["extract", "transform"]
-
-    # Verify events
-    event_types = [event.event_type for event in harness_success.event_bus.events]
-    assert EventType.WORKFLOW_STARTED in event_types
-    assert EventType.WORKFLOW_COMPLETED in event_types
+    event_types = [event.event_type for event in harness_fail.event_bus.events]
+    assert EventType.TASK_FAILED in event_types
     assert EventType.TASK_COMPLETED in event_types
 
-    # Verify memory entry (using get_all)
-    memory_entries = asyncio.run(harness_fail.engineering_memory.get_all(namespace=harness_fail.workflow_id))
-    assert len(memory_entries) >= 1
+    memory_entries = asyncio.run(
+        harness_fail.engineering_memory.get_all(namespace=harness_fail.workflow_id)
+    )
+    assert memory_entries["recovery:extract:retry"]["success"] is True
 
 
-def test_workflow_coordinator_with_recovery_strategy(tmp_path) -> None:
-    """Test coordinator with explicit recovery strategy for failing tasks."""
-    db_path = str(tmp_path / "test_engineering_memory3.db")
-    harness = _build_recovery_harness(db_path=db_path, failing_tasks={"transform"}, retry_success=True, max_retries=0)
+def test_event_replay_recovery_updates_context_and_records_memory() -> None:
+    """Replay task events through RecoveryEngine and persist the recovery result."""
+    harness = _build_recovery_harness()
+    replay_start = Event(
+        event_type=EventType.TASK_STARTED,
+        workflow_id=harness.workflow_id,
+        payload={"task_id": "extract"},
+    )
+    replay_done = Event(
+        event_type=EventType.TASK_COMPLETED,
+        workflow_id=harness.workflow_id,
+        payload={"task_id": "extract", "result": {"ok": True}},
+    )
+    asyncio.run(harness.event_bus.publish(replay_start))
+    asyncio.run(harness.event_bus.publish(replay_done))
+    harness.state_machine.initialize("extract", TaskState.PENDING)
 
-    # Use recovery engine to get recovery strategy (pass FailureType instead of ctx)
-    strategy = harness.recovery_engine.select_recovery_strategy(FailureType.RUNTIME)
-    assert strategy in [RecoveryStrategy.RETRY, RecoveryStrategy.EVENT_REPLAY, RecoveryStrategy.SNAPSHOT_RESTORE]
+    recovery_context = RecoveryContext(
+        task_id="extract",
+        workflow_id=harness.workflow_id,
+        failure_type=FailureType.NETWORK,
+        error_msg="event stream interrupted",
+        event_id=replay_start.event_id,
+        recovery_strategy=RecoveryStrategy.EVENT_REPLAY,
+    )
+
+    recovery_success = asyncio.run(
+        harness.recovery_engine.execute_recovery(recovery_context)
+    )
+    assert recovery_success is True
+
+    execution_context = harness.task_executor.get_execution_context("extract")
+    assert execution_context is not None
+    assert execution_context.status == ExecutionStatus.COMPLETED
+    assert execution_context.result == {"ok": True}
+    assert execution_context.metadata["replayed_from_event_id"] == replay_start.event_id
+
+    asyncio.run(
+        harness.engineering_memory.put(
+            namespace=harness.workflow_id,
+            key="recovery:extract:event-replay",
+            value={
+                "type": "task_recovery",
+                "task_id": "extract",
+                "strategy": recovery_context.recovery_strategy.value,
+                "success": recovery_success,
+                "tags": ["recovery", "event_replay"],
+                "content": "Task extract recovered by replaying task events",
+            },
+        )
+    )
+    memory_entries = asyncio.run(
+        harness.engineering_memory.get_all(namespace=harness.workflow_id)
+    )
+    assert memory_entries["recovery:extract:event-replay"]["success"] is True

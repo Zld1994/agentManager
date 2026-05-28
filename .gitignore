@@ -43,6 +43,9 @@ env/
 htmlcov/
 .tox/
 .hypothesis/
+test_tmp/
+.test-artifacts/
+*.db
 
 # Environment
 .env

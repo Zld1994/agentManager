@@ -135,11 +135,7 @@ class RecoveryEngine:
                     RecoveryStrategy.HITL,
                     RecoveryStrategy.ESCALATE,
                 ]:
-                    self.state_machine.transition(
-                        task_id,
-                        TaskState.READY,
-                        f"Recovery succeeded with {ctx.recovery_strategy.value}",
-                    )
+                    self._mark_recovery_ready(ctx)
             else:
                 logger.warning(
                     f"Recovery failed for task {task_id} "
@@ -621,6 +617,27 @@ class RecoveryEngine:
                 TaskState.BLOCKED_HITL,
                 "Recovery event replay: task_blocked",
             )
+
+    def _mark_recovery_ready(self, ctx: RecoveryContext) -> None:
+        """Mark a recovered task ready unless recovery already completed it."""
+        task_id = ctx.task_id
+        current_state = None
+        get_state = getattr(self.state_machine, "get_state", None)
+        if callable(get_state):
+            current_state = get_state(task_id)
+
+        if current_state in {TaskState.COMPLETED, TaskState.READY}:
+            return
+
+        reason = f"Recovery succeeded with {ctx.recovery_strategy.value}"
+        if current_state == TaskState.FAILED:
+            self.state_machine.transition(task_id, TaskState.BLOCKED_REPAIR, reason)
+            return
+
+        if current_state == TaskState.BLOCKED_REPAIR:
+            return
+
+        self.state_machine.transition(task_id, TaskState.READY, reason)
 
     def _safe_transition(
         self, task_id: str, new_state: TaskState, reason: str
