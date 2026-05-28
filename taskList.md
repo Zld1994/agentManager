@@ -151,6 +151,8 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
 **Purpose:** Turn static Docker review into executable validation.
 
+**Status (2026-05-29):** Blocked by local tooling/network, not by a confirmed Compose or Dockerfile schema error. Windows PowerShell has no `docker` command. WSL `Ubuntu-24.04` is running with Docker Engine CLI `29.1.3`, but `docker compose` and `docker-compose` are unavailable. `docker build -f Dockerfile.prod -t agentmanager:prod .` reached the WSL Docker daemon and then failed pulling `python:3.11-slim` from Docker Hub with a TLS handshake timeout. Install Docker Compose v2 in WSL or expose Docker Desktop Compose on Windows, then verify Docker Hub registry/proxy access before rerunning this task.
+
 **Files:**
 - Inspect: `Dockerfile.dev`
 - Inspect: `Dockerfile.prod`
@@ -559,4 +561,3 @@ Expected final state:
 6. `chore: generate ci-backed verification reports`
 7. `feat: complete runtime recovery memory loop`
 8. `feat: add production observability controls`
-
