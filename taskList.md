@@ -423,6 +423,8 @@
 
 **目的：** 使从工作流创建到执行、恢复、缺陷修复和内存写回的整个过程可观察，并作为一个循环进行测试。
 
+**状态 (2026-05-29)：** ✅ 全部 4 个步骤已通过验证。10 个 e2e 测试 + 69 个单元测试全部通过。
+
 **文件：**
 - 修改：`agentManager/runtime/workflow_coordinator.py`
 - 修改：`agentManager/runtime/task_executor.py`
@@ -433,7 +435,7 @@
 - 测试：`tests/e2e/test_runtime_workflow_loop.py`
 - 添加或修改：`tests/e2e/test_execution_recovery_memory_loop.py`
 
-- [ ] 步骤 1：为成功的工作流执行编写端到端测试。
+- [x] 步骤 1：为成功的工作流执行编写端到端测试。
 
   测试应创建小型 DAG、分发就绪任务、通过 `TaskExecutor` 执行它们、发布事件、更新状态、检查点输出，并写入内存记录。
 
@@ -443,7 +445,9 @@
   python -m pytest tests/e2e/test_runtime_workflow_loop.py -v --no-cov
   ```
 
-- [ ] 步骤 2：为恢复路径执行编写端到端测试。
+  **结果：** ✅ 2 个测试通过（成功/失败工作流执行）
+
+- [x] 步骤 2：为恢复路径执行编写端到端测试。
 
   添加 `tests/e2e/test_execution_recovery_memory_loop.py`，覆盖失败任务触发恢复、记录恢复事件并写入持久化工程内存条目的场景。
 
@@ -453,7 +457,9 @@
   python -m pytest tests/e2e/test_execution_recovery_memory_loop.py -v --no-cov
   ```
 
-- [ ] 步骤 3：将缺陷修复连接为可选的恢复策略。
+  **结果：** ✅ 4 个测试通过（恢复引擎、事件重放、缺陷修复、内存写回）
+
+- [x] 步骤 3：将缺陷修复连接为可选的恢复策略。
 
   确保 `RecoveryEngine` 仅在分类表明可修复缺陷且工作流策略允许时调用 `repair_pipeline`。
 
@@ -463,13 +469,15 @@
   python -m pytest tests/unit/test_recovery_engine.py tests/test_defect_repair.py -v --no-cov
   ```
 
-- [ ] 步骤 4：验证组合的运行时路径。
+  **结果：** ✅ 69 个测试通过（defect_repair 集成已验证）
+
+- [x] 步骤 4：验证组合的运行时路径。
 
   ```powershell
   python -m pytest tests/e2e/ -v --no-cov
   ```
 
-  预期结果：成功循环和恢复循环都通过，无需外部服务。
+  **结果：** ✅ 10/10 e2e 测试通过（成功循环和恢复循环均通过，无需外部服务）
 
 ---
 
