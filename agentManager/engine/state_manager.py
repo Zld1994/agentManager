@@ -5,7 +5,7 @@ This module manages task state transitions and ensures valid state flows.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 import logging
 
@@ -78,8 +78,9 @@ class StateMachine:
         TaskState.BLOCKED_HITL: [],  # Terminal state
     }
 
-    def __init__(self):
+    def __init__(self, repository: Optional[Any] = None):
         """Initialize state machine."""
+        self.repository = repository
         self.states: Dict[str, TaskState] = {}
         self.history: Dict[str, List[StateTransition]] = {}
 
@@ -95,6 +96,15 @@ class StateMachine:
 
         self.states[task_id] = initial_state
         self.history[task_id] = []
+        if self.repository is not None:
+            self.repository.save_task_state(task_id, initial_state)
+            self.repository.append_audit_record(
+                self._audit_record(
+                    "task_state_initialized",
+                    task_id,
+                    {"state": initial_state.value},
+                )
+            )
         logger.info(f"Initialized task {task_id} with state {initial_state.value}")
 
     def transition(
@@ -114,7 +124,12 @@ class StateMachine:
             ValueError: If task not initialized or transition invalid
         """
         if task_id not in self.states:
+            self.get_state(task_id)
+
+        if task_id not in self.states:
             raise ValueError(f"Task {task_id} not initialized")
+        if task_id not in self.history:
+            self.history[task_id] = self.get_history(task_id)
 
         current_state = self.states[task_id]
 
@@ -141,6 +156,20 @@ class StateMachine:
         )
         self.history[task_id].append(transition)
         self.states[task_id] = new_state
+        if self.repository is not None:
+            self.repository.save_task_state(task_id, new_state)
+            self.repository.save_transition(transition)
+            self.repository.append_audit_record(
+                self._audit_record(
+                    "task_state_transitioned",
+                    task_id,
+                    {
+                        "from_state": current_state.value,
+                        "to_state": new_state.value,
+                        "reason": reason,
+                    },
+                )
+            )
 
         log_msg = f"Transitioned {task_id}: {current_state.value} → {new_state.value}"
         if reason:
@@ -156,7 +185,14 @@ class StateMachine:
         Returns:
             Current TaskState or None if not initialized
         """
-        return self.states.get(task_id)
+        state = self.states.get(task_id)
+        if state is not None or self.repository is None:
+            return state
+
+        state = self.repository.load_task_state(task_id)
+        if state is not None:
+            self.states[task_id] = state
+        return state
 
     def get_history(self, task_id: str) -> List[StateTransition]:
         """Get state transition history.
@@ -167,7 +203,16 @@ class StateMachine:
         Returns:
             List of state transitions
         """
-        return self.history.get(task_id, [])
+        history = self.history.get(task_id)
+        if history is not None and history:
+            return history
+        if self.repository is None:
+            return history or []
+
+        persisted_history = self.repository.load_transitions(task_id)
+        if persisted_history:
+            self.history[task_id] = persisted_history
+        return persisted_history
 
     def is_terminal(self, task_id: str) -> bool:
         """Check if task is in terminal state.
@@ -192,3 +237,9 @@ class StateMachine:
         """
         state = self.get_state(task_id)
         return state in [TaskState.FAILED, TaskState.BLOCKED_REPAIR]
+
+    def _audit_record(self, action: str, entity_id: str, payload: dict[str, str]) -> Any:
+        """Create an audit record without requiring storage imports by default."""
+        from agentManager.storage import AuditRecord
+
+        return AuditRecord(action=action, entity_id=entity_id, payload=payload)

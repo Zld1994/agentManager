@@ -16,12 +16,11 @@ agentManager 是一个 AI Agent 控制平面的原型实现。它提供了任务
 - Scheduler with conflict detection and backoff
 - FastAPI REST API (7 endpoints)
 - 66 unit tests (100% passing)
+- Opt-in durable backend interfaces for PostgreSQL state, S3-compatible checkpoints,
+  Redis Streams retries, and pluggable vector memory
 
 ### 🔄 Planned (Phase 2-4)
 - FastAPI service with full CRUD
-- PostgreSQL persistence
-- Redis Streams event bus
-- Qdrant vector memory
 - OpenTelemetry/Prometheus observability
 - Real L1-L4 repair workflow
 - Docker sandbox hardening
@@ -65,6 +64,27 @@ python -m uvicorn agentManager.api:app --host 127.0.0.1 --port 8000
 # Swagger UI: http://localhost:8000/docs
 # ReDoc: http://localhost:8000/redoc
 ```
+
+### Durable Backend Configuration
+
+Local usage still defaults to in-memory state and SQLite-backed memory. Production-oriented
+durability is opt-in through environment variables:
+
+```bash
+DATABASE_URL=postgresql://agentmanager:secret@postgres:5432/agentmanager
+REDIS_URL=redis://redis:6379/0
+OBJECT_STORE_ENDPOINT=http://minio:9000
+OBJECT_STORE_BUCKET=agentmanager-checkpoints
+OBJECT_STORE_ACCESS_KEY=...
+OBJECT_STORE_SECRET_KEY=...
+VECTOR_BACKEND=sqlite  # sqlite, memory, or qdrant
+QDRANT_URL=http://qdrant:6333
+QDRANT_API_KEY=...
+```
+
+`agentManager.storage` exposes the durable repository/object-store interfaces. Unit tests mock
+PostgreSQL, Redis, S3/MinIO, and Qdrant clients, so a live service stack is not required for the
+default test workflow.
 
 ### Test API Endpoints
 ```bash
@@ -402,11 +422,11 @@ scheduler.mark_completed("task_1")
 - [x] 66 unit tests
 
 ### Phase 2 (1-2 weeks)
-- [ ] PostgreSQL persistence
-- [ ] Redis Streams event bus
+- [x] PostgreSQL state repository interface
+- [x] Redis Streams event bus with ACK/retry/DLQ behavior
 - [ ] TaskExecutor execution loop
 - [ ] RecoveryEngine real recovery
-- [ ] Memory three-layer design
+- [x] Memory three-layer design with pluggable vector backend
 - [ ] DefectRepair pipeline
 
 ### Phase 3 (2-3 weeks)

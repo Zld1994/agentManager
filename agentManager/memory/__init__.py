@@ -9,9 +9,11 @@ from .project_memory import ProjectMemory
 from .engineering_memory import EngineeringMemory
 from .vector_backend import (
     InMemoryVectorSearchBackend,
+    QdrantVectorSearchBackend,
     SQLiteVectorSearchBackend,
     VectorSearchBackend,
     VectorSearchResult,
+    create_vector_backend,
 )
 
 __all__ = [
@@ -28,5 +30,7 @@ __all__ = [
     "VectorSearchBackend",
     "VectorSearchResult",
     "InMemoryVectorSearchBackend",
+    "QdrantVectorSearchBackend",
     "SQLiteVectorSearchBackend",
+    "create_vector_backend",
 ]

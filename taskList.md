@@ -233,8 +233,9 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 - Test: `tests/unit/test_checkpoint.py`
 - Test: `tests/unit/test_redis_stream_event_bus.py`
 - Test: `tests/unit/memory/test_layered_memory_backends.py`
+- Test: `tests/unit/test_storage_backends.py`
 
-- [ ] Step 1: Define storage configuration.
+- [x] Step 1: Define storage configuration.
 
   Add settings for:
 
@@ -252,7 +253,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pytest tests/unit/test_settings.py -v --no-cov
   ```
 
-- [ ] Step 2: Add a PostgreSQL state repository interface.
+- [x] Step 2: Add a PostgreSQL state repository interface.
 
   Create `agentManager/storage/postgres.py` with repository methods for workflow state, task runs, and audit records. Keep implementation behind an interface so unit tests can use fakes without requiring PostgreSQL.
 
@@ -262,7 +263,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pytest tests/unit/test_state_manager.py -v --no-cov
   ```
 
-- [ ] Step 3: Add object-store checkpoint abstraction.
+- [x] Step 3: Add object-store checkpoint abstraction.
 
   Create `agentManager/storage/object_store.py` and connect it to `agentManager/engine/checkpoint.py` without removing local filesystem checkpoint support.
 
@@ -272,7 +273,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pytest tests/unit/test_checkpoint.py -v --no-cov
   ```
 
-- [ ] Step 4: Keep Redis Streams as the durable event transport.
+- [x] Step 4: Keep Redis Streams as the durable event transport.
 
   Ensure `agentManager/engine/event_bus/redis_stream.py` handles stream append, consumer read, ack, retry, and workflow filtering behavior covered by tests.
 
@@ -282,7 +283,7 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pytest tests/unit/test_redis_stream_event_bus.py -v --no-cov
   ```
 
-- [ ] Step 5: Persist memory through pluggable backends.
+- [x] Step 5: Persist memory through pluggable backends.
 
   Extend `agentManager/memory/memory_backend.py` and `agentManager/memory/vector_backend.py` so profile/session/engineering memory can use SQLite locally and a durable backend in production.
 

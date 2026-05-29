@@ -6,7 +6,9 @@ protection and recovery capabilities.
 
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional
+import json
 import logging
+import re
 import tarfile
 from pathlib import Path
 
@@ -58,6 +60,36 @@ class InMemoryCheckpointManager(CheckpointManager):
 
     async def delete_checkpoint(self, task_id: str) -> None:
         self._checkpoints.pop(task_id, None)
+
+
+class ObjectStoreCheckpointManager(CheckpointManager):
+    """Checkpoint manager backed by a byte-oriented object store."""
+
+    _TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
+
+    def __init__(self, object_store: Any, prefix: str = "checkpoints"):
+        self.object_store = object_store
+        self.prefix = prefix.strip("/")
+
+    async def save_checkpoint(self, task_id: str, context: Any) -> None:
+        key = self._key_for_task(task_id)
+        data = json.dumps(context).encode("utf-8")
+        self.object_store.put_bytes(key, data, content_type="application/json")
+
+    async def load_checkpoint(self, task_id: str) -> Optional[Any]:
+        key = self._key_for_task(task_id)
+        data = self.object_store.get_bytes(key)
+        if data is None:
+            return None
+        return json.loads(data.decode("utf-8"))
+
+    async def delete_checkpoint(self, task_id: str) -> None:
+        self.object_store.delete(self._key_for_task(task_id))
+
+    def _key_for_task(self, task_id: str) -> str:
+        if not task_id or not self._TASK_ID_PATTERN.fullmatch(task_id):
+            raise ValueError(f"Invalid task_id for checkpoint object key: {task_id}")
+        return f"{self.prefix}/{task_id}.json" if self.prefix else f"{task_id}.json"
 
 
 def safe_extract(tar: tarfile.TarFile, path: str) -> None:
@@ -151,7 +183,6 @@ async def load_checkpoint_with_recovery(
                 )
                 return None
 
-            import json
             with extracted:
                 return json.load(extracted)
 

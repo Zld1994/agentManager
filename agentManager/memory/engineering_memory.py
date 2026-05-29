@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .memory_backend import MemoryBackend
-from .vector_backend import SQLiteVectorSearchBackend, VectorSearchBackend
+from agentManager.config.settings import get_durable_backend_settings
+
+from .vector_backend import SQLiteVectorSearchBackend, VectorSearchBackend, create_vector_backend
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +41,19 @@ class EngineeringMemory(MemoryBackend):
         self.vector_backend = vector_backend or SQLiteVectorSearchBackend(db_path=str(self.db_path))
         self._init_db()
         logger.info("EngineeringMemory initialized with db=%s", db_path)
+
+    @classmethod
+    def from_settings(cls, db_path: str = "engineering_memory.db") -> "EngineeringMemory":
+        """Create engineering memory from durable backend environment settings."""
+        settings = get_durable_backend_settings()
+        vector_backend = create_vector_backend(
+            settings["vector_backend"],
+            db_path=db_path,
+            url=os.getenv("QDRANT_URL", "http://localhost:6333"),
+            collection_name=os.getenv("QDRANT_COLLECTION", "agentmanager_memory"),
+            api_key=os.getenv("QDRANT_API_KEY") or None,
+        )
+        return cls(db_path=db_path, vector_backend=vector_backend)
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
@@ -244,7 +260,12 @@ class EngineeringMemory(MemoryBackend):
 
         return {key: json.loads(value) for key, value in rows}
 
-    async def get_by_type(self, namespace: str, content_type: str, limit: int = 10) -> List[Dict[str, Any]]:
+    async def get_by_type(
+        self,
+        namespace: str,
+        content_type: str,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
         if not namespace or not content_type:
             raise ValueError("Namespace and content_type cannot be empty")
 

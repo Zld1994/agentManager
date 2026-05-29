@@ -29,10 +29,30 @@ CHECKPOINT_MODULE_SPEC.loader.exec_module(checkpoint_module)
 
 CheckpointManager = checkpoint_module.CheckpointManager
 InMemoryCheckpointManager = checkpoint_module.InMemoryCheckpointManager
+ObjectStoreCheckpointManager = checkpoint_module.ObjectStoreCheckpointManager
 load_checkpoint_with_recovery = checkpoint_module.load_checkpoint_with_recovery
 safe_extract = checkpoint_module.safe_extract
 LOCAL_TMP_ROOT = Path(__file__).resolve().parents[2] / "test_tmp" / "checkpoint"
 LOCAL_TMP_ROOT.mkdir(parents=True, exist_ok=True)
+
+
+class RecordingObjectStore:
+    """Small object-store fake for checkpoint manager tests."""
+
+    def __init__(self):
+        self.objects = {}
+
+    def put_bytes(self, key, data, content_type="application/octet-stream"):
+        self.objects[key] = (data, content_type)
+
+    def get_bytes(self, key):
+        item = self.objects.get(key)
+        if item is None:
+            return None
+        return item[0]
+
+    def delete(self, key):
+        self.objects.pop(key, None)
 
 
 def _new_test_dir(prefix: str) -> Path:
@@ -218,3 +238,22 @@ class TestCheckpointManagerInterface:
                     "task_123",
                 )
             )
+
+    def test_object_store_checkpoint_manager_round_trip(self):
+        object_store = RecordingObjectStore()
+        manager = ObjectStoreCheckpointManager(object_store, prefix="tenant-a")
+        payload = {"state": "running", "step": 3}
+
+        asyncio.run(manager.save_checkpoint("task_123", payload))
+
+        assert object_store.objects["tenant-a/task_123.json"][1] == "application/json"
+        assert asyncio.run(manager.load_checkpoint("task_123")) == payload
+
+        asyncio.run(manager.delete_checkpoint("task_123"))
+        assert asyncio.run(manager.load_checkpoint("task_123")) is None
+
+    def test_object_store_checkpoint_manager_validates_task_id(self):
+        manager = ObjectStoreCheckpointManager(RecordingObjectStore())
+
+        with pytest.raises(ValueError, match="Invalid task_id"):
+            asyncio.run(manager.save_checkpoint("../escape", {"state": "bad"}))

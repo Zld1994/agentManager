@@ -38,21 +38,27 @@
 - `.venv312\Scripts\python.exe -m pip install -e ".[dev]"` - completed successfully with Python 3.12 wheels for `pydantic-core`.
 - `.venv312\Scripts\python.exe -m pytest tests/unit/test_api.py -q --no-cov` - 28 passed, 1 warning.
 - `.venv312\Scripts\python.exe -m pytest` - 530 passed, 1 warning, 85% total coverage.
+- Task 4 durable backend roadmap implemented: durable backend settings, `agentManager/storage/`
+  interfaces, PostgreSQL state repository, S3-compatible object store, object-store checkpoint
+  manager, Redis Streams retry/DLQ handling, and pluggable Qdrant vector backend selection.
+- `.venv312\Scripts\python.exe -m pytest tests/unit/test_settings.py tests/unit/test_state_manager.py tests/unit/test_checkpoint.py tests/unit/test_redis_stream_event_bus.py tests/unit/test_storage_backends.py tests/unit/memory/ -q --no-cov` - 116 passed.
+- `.venv312\Scripts\python.exe -m pytest -q --no-cov` - 557 passed, 1 warning.
 
 **Remaining blockers (2026-05-29)**:
 - Docker/Compose validation is still blocked locally. Windows PowerShell has no `docker` command. WSL `Ubuntu-24.04` is running and has Docker Engine CLI `29.1.3`, but neither `docker compose` nor `docker-compose` is installed. A direct production image build reached the Docker daemon, then failed while pulling `python:3.11-slim` from Docker Hub with a TLS handshake timeout. Required follow-up: install Docker Compose v2 in WSL or expose Docker Desktop Compose on Windows, and ensure Docker Hub registry access/proxy settings work.
+- Default coverage-enabled `.venv312\Scripts\python.exe -m pytest -q` is blocked locally by `pytest-cov` failing to erase `.coverage` with `PermissionError: [WinError 5]`. The full suite passes with `--no-cov`.
 
 ## Pending Fixes From Obsidian Review
 
 - Validate Docker Compose configuration with `docker compose config` after Docker Compose v2 is available in Windows or WSL and Docker Hub image pulls work.
 - Ensure future static completion reports are generated from CI-backed test status rather than hand-written point-in-time claims.
 - Continue hardening WorkerSandbox beyond current defaults: isolated per-task workspaces, stricter timeout cleanup, and production container policy review.
-- Complete durable backend roadmap: PostgreSQL workflow/task-run state, object-store checkpoints, persistent memory, audit logs, OpenTelemetry traces, and deployment docs.
+- Add OpenTelemetry tracing and deployment docs beyond the durable backend interfaces.
 
 ## Suggested Refactor Roadmap
 
 1. Fix P0 runtime issues first: API startup, package discovery, DAG cycle detection, scheduler loop behavior, HITL transitions, EventBus wildcard handling, and monitoring config.
-2. Replace in-memory prototypes with durable backends: Redis Streams, PostgreSQL state/workflow/task-run storage, object-store checkpoints, and persistent memory.
+2. Wire durable backends into production runtime paths: instantiate PostgreSQL state storage, object-store checkpoints, and persistent memory from deployment configuration.
 3. Connect the execution loop end to end from workflow creation through sandbox execution, recovery, defect repair, and memory write-back.
 4. Add production security and observability: sandbox hardening, secret management, audit logs, Prometheus metrics, OpenTelemetry traces, structured logs, CI/CD, and deployment docs.
 

@@ -76,6 +76,19 @@ def get_setting(key: str, default: str = '') -> str:
     return os.getenv(key, default)
 
 
+def get_durable_backend_settings() -> dict[str, str]:
+    """Get opt-in durable backend settings from environment variables."""
+    return {
+        "database_url": os.getenv("DATABASE_URL", ""),
+        "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+        "object_store_endpoint": os.getenv("OBJECT_STORE_ENDPOINT", ""),
+        "object_store_bucket": os.getenv("OBJECT_STORE_BUCKET", ""),
+        "object_store_access_key": os.getenv("OBJECT_STORE_ACCESS_KEY", ""),
+        "object_store_secret_key": os.getenv("OBJECT_STORE_SECRET_KEY", ""),
+        "vector_backend": os.getenv("VECTOR_BACKEND", "sqlite").lower(),
+    }
+
+
 def _parse_csv_setting(value: str) -> tuple[str, ...]:
     """Parse a comma-separated environment setting into a tuple."""
     return tuple(item.strip() for item in value.split(",") if item.strip())

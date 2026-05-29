@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from agentManager.config.settings import (
     WEAK_PASSWORDS,
+    get_durable_backend_settings,
     get_sandbox_policy_settings,
     validate_settings,
 )
@@ -164,3 +165,45 @@ class TestSandboxPolicySettings:
         assert policy["cpu_limit"] == 2.5
         assert policy["memory_limit"] == "1g"
         assert policy["read_only_rootfs"] is False
+
+
+class TestDurableBackendSettings:
+    """Test durable backend environment settings parsing."""
+
+    def test_get_durable_backend_settings_defaults_to_local_fallbacks(self):
+        """Durable backends should be opt-in with local-safe defaults."""
+        with patch.dict(os.environ, {}, clear=True):
+            settings = get_durable_backend_settings()
+
+        assert settings["database_url"] == ""
+        assert settings["redis_url"] == "redis://localhost:6379/0"
+        assert settings["object_store_endpoint"] == ""
+        assert settings["object_store_bucket"] == ""
+        assert settings["object_store_access_key"] == ""
+        assert settings["object_store_secret_key"] == ""
+        assert settings["vector_backend"] == "sqlite"
+
+    def test_get_durable_backend_settings_reads_environment(self):
+        """Durable backend settings should come from production env vars."""
+        env_vars = {
+            "DATABASE_URL": "postgresql://agent:secret@db:5432/agentmanager",
+            "REDIS_URL": "redis://redis:6379/1",
+            "OBJECT_STORE_ENDPOINT": "http://minio:9000",
+            "OBJECT_STORE_BUCKET": "agentmanager-checkpoints",
+            "OBJECT_STORE_ACCESS_KEY": "access",
+            "OBJECT_STORE_SECRET_KEY": "secret",
+            "VECTOR_BACKEND": "qdrant",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = get_durable_backend_settings()
+
+        assert settings == {
+            "database_url": "postgresql://agent:secret@db:5432/agentmanager",
+            "redis_url": "redis://redis:6379/1",
+            "object_store_endpoint": "http://minio:9000",
+            "object_store_bucket": "agentmanager-checkpoints",
+            "object_store_access_key": "access",
+            "object_store_secret_key": "secret",
+            "vector_backend": "qdrant",
+        }

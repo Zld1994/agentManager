@@ -18,6 +18,8 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 - `agentManager/engine/event_bus/`: async event bus abstractions and in-memory/Redis implementations.
 - `agentManager/memory/`: profile/session, project, engineering memory, and vector-search backend
   components.
+- `agentManager/storage/`: durable repository and object-store interfaces for PostgreSQL state
+  persistence and S3-compatible checkpoint storage.
 - `agentManager/recovery/`: recovery context, error classification, and recovery engine.
 - `agentManager/runtime/`: task execution context, task executor, and workflow coordination helpers.
 - `agentManager/sandbox/`: worker guard and sandbox execution helpers.
@@ -147,6 +149,9 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
 - Python 3.12 is the current local verification path. A repo-local `.venv312` may exist and can run
   `tests/unit/test_api.py` and the default `pytest` suite. Python 3.15 remains unsuitable for full
   FastAPI verification because dependency wheels may be unavailable.
+- Durable backend client libraries are base dependencies (`psycopg[binary]`, `boto3`,
+  `qdrant-client`), but durable services remain opt-in through environment settings; unit tests
+  should mock PostgreSQL, object storage, Redis, and Qdrant unless explicitly integration-scoped.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
   may be generated locally. Avoid editing generated metadata by hand unless packaging behavior is
   the target of the task.

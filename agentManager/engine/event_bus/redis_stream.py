@@ -52,6 +52,7 @@ class RedisStreamEventBus(BaseEventBus):
         self.redis_client: Optional[Redis] = None
         self.subscribers: Dict[str, List[Callable]] = {}
         self._consumer_tasks: Dict[str, asyncio.Task] = {}
+        self._retry_counts: Dict[str, int] = {}
 
     async def connect(self) -> None:
         """Establish Redis connection."""
@@ -201,21 +202,7 @@ class RedisStreamEventBus(BaseEventBus):
                     if messages:
                         for stream_key, stream_messages in messages:
                             for message_id, data in stream_messages:
-                                try:
-                                    event = self._deserialize_event(data)
-                                    await self._trigger_callbacks(event)
-
-                                    # ACK the message
-                                    await self.redis_client.xack(
-                                        self.stream_key,
-                                        self.consumer_group,
-                                        message_id,
-                                    )
-                                    logger.debug(f"ACKed message {message_id}")
-                                except Exception as e:
-                                    logger.error(f"Error processing message {message_id}: {e}")
-                                    # Move to DLQ on error
-                                    await self._move_to_dlq(message_id, data, str(e))
+                                await self._handle_stream_message(message_id, data)
                 except asyncio.CancelledError:
                     logger.info(f"Consumer {consumer_name} stopped")
                     break
@@ -226,6 +213,39 @@ class RedisStreamEventBus(BaseEventBus):
         task = asyncio.create_task(consume_loop())
         self._consumer_tasks[consumer_name] = task
         logger.info(f"Started consumer {consumer_name}")
+
+    async def _handle_stream_message(
+        self,
+        message_id: str,
+        data: Dict[str, str],
+    ) -> None:
+        """Process one Redis stream message with bounded retry tracking."""
+        if not self.redis_client:
+            raise RuntimeError("Redis client not connected. Call connect() first.")
+
+        try:
+            event = self._deserialize_event(data)
+            await self._trigger_callbacks(event)
+            await self.redis_client.xack(
+                self.stream_key,
+                self.consumer_group,
+                message_id,
+            )
+            self._retry_counts.pop(message_id, None)
+            logger.debug(f"ACKed message {message_id}")
+        except Exception as e:
+            retry_count = self._retry_counts.get(message_id, 0) + 1
+            self._retry_counts[message_id] = retry_count
+            logger.error(
+                "Error processing message %s (attempt %s/%s): %s",
+                message_id,
+                retry_count,
+                self.max_retries + 1,
+                e,
+            )
+            if retry_count > self.max_retries:
+                await self._move_to_dlq(message_id, data, str(e))
+                self._retry_counts.pop(message_id, None)
 
     def _deserialize_event(self, data: Dict[str, str]) -> Event:
         """Deserialize event from Redis data.

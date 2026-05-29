@@ -10,11 +10,11 @@ Tests cover:
 - Error handling
 """
 
-import pytest
-import asyncio
 import json
 from datetime import datetime, timezone
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from agentManager.engine.event_bus.base import Event, EventType
 from agentManager.engine.event_bus.redis_stream import RedisStreamEventBus
@@ -242,14 +242,14 @@ class TestRedisStreamEventBusCallbacks:
         """Test wildcard subscription matching."""
         callback_wildcard = Mock()
         callback_specific = Mock()
-        
+
         await redis_event_bus.subscribe(EventType.TASK_CREATED, callback_wildcard)
         await redis_event_bus.subscribe(
             EventType.TASK_CREATED,
             callback_specific,
             workflow_id="workflow_123",
         )
-        
+
         await redis_event_bus._trigger_callbacks(sample_event)
 
         callback_wildcard.assert_called_once()
@@ -260,13 +260,13 @@ class TestRedisStreamEventBusCallbacks:
         """Test error handling in callbacks."""
         callback_error = Mock(side_effect=Exception("Test error"))
         callback_ok = Mock()
-        
+
         await redis_event_bus.subscribe(EventType.TASK_CREATED, callback_error)
         await redis_event_bus.subscribe(EventType.TASK_CREATED, callback_ok)
-        
+
         # Should not raise despite callback error
         await redis_event_bus._trigger_callbacks(sample_event)
-        
+
         callback_error.assert_called_once()
         callback_ok.assert_called_once()
 
@@ -434,6 +434,59 @@ class TestRedisStreamEventBusDLQ:
             assert len(dlq_events) == 1
             assert dlq_events[0]["error"] == "Processing failed"
 
+    @pytest.mark.asyncio
+    async def test_handle_stream_message_retries_before_dlq(self, redis_event_bus):
+        """Failed consumer messages should retry before moving to the DLQ."""
+        redis_event_bus.max_retries = 2
+        redis_event_bus.redis_client = AsyncMock()
+        redis_event_bus.redis_client.xack = AsyncMock()
+        redis_event_bus._trigger_callbacks = AsyncMock(side_effect=RuntimeError("boom"))
+        redis_event_bus._move_to_dlq = AsyncMock()
+        data = {
+            "event_type": "task_created",
+            "workflow_id": "workflow_123",
+            "event_id": "event_789",
+            "timestamp": utc_now().isoformat(),
+            "payload": "{}",
+        }
+
+        await redis_event_bus._handle_stream_message("msg-1", data)
+        await redis_event_bus._handle_stream_message("msg-1", data)
+
+        redis_event_bus.redis_client.xack.assert_not_called()
+        redis_event_bus._move_to_dlq.assert_not_called()
+
+        await redis_event_bus._handle_stream_message("msg-1", data)
+
+        redis_event_bus._move_to_dlq.assert_called_once_with("msg-1", data, "boom")
+
+    @pytest.mark.asyncio
+    async def test_handle_stream_message_acks_successful_message(
+        self,
+        redis_event_bus,
+        sample_event,
+    ):
+        """Successful consumer messages should trigger callbacks and ACK once."""
+        redis_event_bus.redis_client = AsyncMock()
+        redis_event_bus.redis_client.xack = AsyncMock()
+        redis_event_bus._trigger_callbacks = AsyncMock()
+        data = {
+            "event_type": sample_event.event_type.value,
+            "workflow_id": sample_event.workflow_id,
+            "event_id": sample_event.event_id,
+            "timestamp": sample_event.timestamp.isoformat(),
+            "payload": json.dumps(sample_event.payload),
+        }
+
+        await redis_event_bus._handle_stream_message("msg-1", data)
+
+        redis_event_bus._trigger_callbacks.assert_called_once()
+        redis_event_bus.redis_client.xack.assert_called_once_with(
+            redis_event_bus.stream_key,
+            redis_event_bus.consumer_group,
+            "msg-1",
+        )
+
 
 class TestRedisStreamEventBusClear:
     """Test clear functionality."""
@@ -451,7 +504,7 @@ class TestRedisStreamEventBusClear:
             await redis_event_bus.connect()
             callback = Mock()
             await redis_event_bus.subscribe(EventType.TASK_CREATED, callback)
-            
+
             await redis_event_bus.clear()
 
             mock_client.delete.assert_any_call("test_stream")

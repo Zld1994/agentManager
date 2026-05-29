@@ -5,12 +5,15 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
+from unittest.mock import patch
 from pathlib import Path
 
 from agentManager.memory import EngineeringMemory, ProfileMemory, SessionMemory
 from agentManager.memory.vector_backend import (
     InMemoryVectorSearchBackend,
+    QdrantVectorSearchBackend,
     SQLiteVectorSearchBackend,
+    create_vector_backend,
 )
 
 
@@ -109,6 +112,50 @@ def test_engineering_memory_defaults_to_sqlite_vector_backend():
         memory = EngineeringMemory(db_path=str(db_path))
 
         assert isinstance(memory.vector_backend, SQLiteVectorSearchBackend)
+    finally:
+        try:
+            db_path.unlink(missing_ok=True)
+        except PermissionError:
+            pass
+
+
+def test_create_vector_backend_selects_sqlite_fallback():
+    """Factory should default production vector selection to SQLite fallback."""
+    backend = create_vector_backend("sqlite", db_path=":memory:")
+
+    assert isinstance(backend, SQLiteVectorSearchBackend)
+
+
+def test_create_vector_backend_selects_qdrant_backend():
+    """Factory should expose an opt-in Qdrant backend for production config."""
+    backend = create_vector_backend(
+        "qdrant",
+        url="http://qdrant:6333",
+        collection_name="agentmanager",
+        api_key="secret",
+    )
+
+    assert isinstance(backend, QdrantVectorSearchBackend)
+    assert backend.url == "http://qdrant:6333"
+    assert backend.collection_name == "agentmanager"
+
+
+def test_engineering_memory_from_settings_uses_vector_backend_env():
+    """EngineeringMemory factory should honor VECTOR_BACKEND configuration."""
+    db_path = _workspace_temp_db("engineering-settings")
+    env_vars = {
+        "VECTOR_BACKEND": "qdrant",
+        "QDRANT_URL": "http://qdrant:6333",
+        "QDRANT_API_KEY": "secret",
+    }
+
+    try:
+        with patch.dict("os.environ", env_vars, clear=True):
+            memory = EngineeringMemory.from_settings(db_path=str(db_path))
+
+        assert isinstance(memory.vector_backend, QdrantVectorSearchBackend)
+        assert memory.vector_backend.url == "http://qdrant:6333"
+        assert memory.vector_backend.api_key == "secret"
     finally:
         try:
             db_path.unlink(missing_ok=True)
