@@ -20,6 +20,7 @@ from agentManager.runtime.execution_context import (
     ExecutionContext,
     ExecutionStatus,
 )
+from agentManager.defect_repair.repair_strategies import RepairResult, RepairStatus
 
 
 class TestRecoveryContext:
@@ -691,3 +692,179 @@ class TestRecoveryEngine:
         assert interventions[0]["strategy"] == RecoveryStrategy.ESCALATE.value
         assert interventions[0]["failure_type"] == FailureType.UNKNOWN.value
         assert interventions[0]["error_msg"] == "Unknown error"
+
+    @pytest.mark.asyncio
+    async def test_defect_repair_succeeds_with_injected_pipeline(
+        self, mock_dependencies
+    ):
+        """Test DEFECT_REPAIR succeeds when a configured pipeline repairs code."""
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        exec_ctx.mark_failed("ValueError: invalid value")
+        task = Mock()
+        task.node_id = "task_1"
+        task.metadata = {"workflow_id": "workflow_1", "code": "x = int(raw)"}
+        pipeline = Mock()
+        pipeline.repair = AsyncMock(return_value=(RepairStatus.SUCCESS, "x = 1"))
+        pipeline.get_repair_history = Mock(
+            return_value=[
+                RepairResult(
+                    status=RepairStatus.SUCCESS,
+                    repaired_code="x = 1",
+                    attempts=1,
+                )
+            ]
+        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+        mock_dependencies["task_executor"].get_task = Mock(return_value=task)
+        mock_dependencies["state_machine"].get_state = Mock(
+            return_value=TaskState.COMPLETED
+        )
+        engine = RecoveryEngine(
+            **mock_dependencies,
+            defect_repair_pipeline=pipeline,
+        )
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.RUNTIME,
+            error_msg="ValueError: invalid value",
+            recovery_strategy=RecoveryStrategy.DEFECT_REPAIR,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is True
+        pipeline.repair.assert_awaited_once()
+        assert exec_ctx.status == ExecutionStatus.COMPLETED
+        assert exec_ctx.metadata["defect_repair"]["status"] == "success"
+        assert exec_ctx.metadata["defect_repair"]["repaired_code_present"] is True
+
+    @pytest.mark.asyncio
+    async def test_defect_repair_fails_without_pipeline(self, mock_dependencies):
+        """Test DEFECT_REPAIR records unavailable metadata when not configured."""
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+        mock_dependencies["state_machine"].get_state = Mock(
+            return_value=TaskState.FAILED
+        )
+        engine = RecoveryEngine(**mock_dependencies)
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.RUNTIME,
+            error_msg="Runtime error",
+            recovery_strategy=RecoveryStrategy.DEFECT_REPAIR,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is False
+        assert exec_ctx.metadata["defect_repair"]["status"] == "unavailable"
+        assert (
+            exec_ctx.metadata["defect_repair"]["failure_reason"]
+            == "Defect repair pipeline is not configured"
+        )
+
+    @pytest.mark.asyncio
+    async def test_defect_repair_missing_code_blocks_for_human_review(
+        self, mock_dependencies
+    ):
+        """Test DEFECT_REPAIR skips tasks without repairable code metadata."""
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        task = Mock()
+        task.node_id = "task_1"
+        task.metadata = {"workflow_id": "workflow_1"}
+        pipeline = Mock()
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+        mock_dependencies["task_executor"].get_task = Mock(return_value=task)
+        mock_dependencies["state_machine"].get_state = Mock(
+            return_value=TaskState.FAILED
+        )
+        engine = RecoveryEngine(
+            **mock_dependencies,
+            defect_repair_pipeline=pipeline,
+        )
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.RUNTIME,
+            error_msg="Runtime error",
+            recovery_strategy=RecoveryStrategy.DEFECT_REPAIR,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is False
+        assert exec_ctx.metadata["defect_repair"]["status"] == "skipped"
+        assert "No repairable code" in exec_ctx.metadata["defect_repair"]["failure_reason"]
+
+    @pytest.mark.asyncio
+    async def test_defect_repair_escalation_records_manual_intervention(
+        self, mock_dependencies
+    ):
+        """Test escalated defect repair stores manual-intervention metadata."""
+        exec_ctx = ExecutionContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            metadata={},
+        )
+        task = Mock()
+        task.node_id = "task_1"
+        task.metadata = {"workflow_id": "workflow_1", "code": "broken()"}
+        pipeline = Mock()
+        pipeline.repair = AsyncMock(return_value=(RepairStatus.ESCALATED, None))
+        pipeline.get_repair_history = Mock(
+            return_value=[
+                RepairResult(
+                    status=RepairStatus.ESCALATED,
+                    error_message="Escalated to human review",
+                    attempts=1,
+                )
+            ]
+        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(
+            return_value=exec_ctx
+        )
+        mock_dependencies["task_executor"].get_task = Mock(return_value=task)
+        mock_dependencies["state_machine"].get_state = Mock(
+            return_value=TaskState.BLOCKED_HITL
+        )
+        engine = RecoveryEngine(
+            **mock_dependencies,
+            defect_repair_pipeline=pipeline,
+        )
+
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.RUNTIME,
+            error_msg="Runtime error",
+            recovery_strategy=RecoveryStrategy.DEFECT_REPAIR,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is False
+        assert exec_ctx.metadata["defect_repair"]["status"] == "escalated"
+        assert exec_ctx.metadata["manual_intervention"][0]["strategy"] == "defect_repair"

@@ -6,11 +6,13 @@ events, state transitions, checkpoint persistence, and final workflow outcome.
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
+import heapq
 import logging
 
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine, TaskState
+from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy
 from agentManager.runtime.execution_context import ExecutionContext
 from agentManager.runtime.task_executor import TaskExecutor
 
@@ -38,6 +40,7 @@ class WorkflowCoordinator:
         task_executor: TaskExecutor,
         event_bus: BaseEventBus,
         state_machine: StateMachine,
+        recovery_engine: Any = None,
         max_iterations: int = 1000,
     ) -> None:
         self.dag_engine = dag_engine
@@ -45,6 +48,7 @@ class WorkflowCoordinator:
         self.task_executor = task_executor
         self.event_bus = event_bus
         self.state_machine = state_machine
+        self.recovery_engine = recovery_engine
         self.max_iterations = max_iterations
 
     async def run_workflow(self, workflow_id: str) -> WorkflowRunResult:
@@ -166,10 +170,69 @@ class WorkflowCoordinator:
             await self.task_executor.run_task(node)
             self.scheduler.mark_completed(task_id)
             self.dag_engine.update_node_status(task_id, status_enum.COMPLETED)
-        except Exception:
+        except Exception as exc:
+            recovered = await self._recover_failed_task(task_id, node, exc)
+            if recovered:
+                current_state = self.state_machine.get_state(task_id)
+                if current_state == TaskState.COMPLETED:
+                    self.scheduler.mark_completed(task_id)
+                    self.dag_engine.update_node_status(task_id, status_enum.COMPLETED)
+                    return
+                if current_state == TaskState.READY:
+                    self._mark_scheduler_pending(task_id)
+                    self.dag_engine.update_node_status(task_id, status_enum.PENDING)
+                    return
+                logger.warning(
+                    "Recovery for task %s did not produce a runnable or "
+                    "completed state",
+                    task_id,
+                )
+
             self.scheduler.mark_failed(task_id)
             self.dag_engine.update_node_status(task_id, status_enum.FAILED)
             self._set_failed_state(task_id, "Task execution failed")
+
+    async def _recover_failed_task(
+        self,
+        task_id: str,
+        node: Any,
+        error: Exception,
+    ) -> bool:
+        """Run optional recovery after task execution fails."""
+        if self.recovery_engine is None:
+            return False
+
+        failure_type, strategy = self.recovery_engine.error_classifier.classify(error)
+        repair_pipeline = getattr(self.recovery_engine, "defect_repair_pipeline", None)
+        if repair_pipeline is not None:
+            strategy = RecoveryStrategy.DEFECT_REPAIR
+
+        workflow_id = node.metadata.get("workflow_id", "unknown")
+        ctx = RecoveryContext(
+            task_id=task_id,
+            workflow_id=workflow_id,
+            failure_type=failure_type,
+            error_msg=str(error),
+            recovery_strategy=strategy,
+        )
+
+        try:
+            return await self.recovery_engine.execute_recovery(ctx)
+        except Exception as exc:
+            logger.error("Recovery failed for task %s: %s", task_id, exc)
+            return False
+
+    def _mark_scheduler_pending(self, task_id: str) -> None:
+        """Return a recovered running task to the scheduler pending queue."""
+        task = self.scheduler.tasks.get(task_id)
+        if task is None:
+            return
+        task.status = "pending"
+        task.next_retry_at = None
+        task.retry_attempts = 0
+        self.scheduler.running_tasks.discard(task_id)
+        if not any(item[1] == task_id for item in self.scheduler.execution_queue):
+            heapq.heappush(self.scheduler.execution_queue, (-task.priority, task_id))
 
     def _all_tasks_terminal(self) -> bool:
         """Return True when every scheduled task is completed or failed."""

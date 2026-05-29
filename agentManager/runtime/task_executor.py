@@ -264,6 +264,44 @@ class TaskExecutor:
 
             raise
 
+    async def execute(self, task_id: str, code: str) -> Dict[str, Any]:
+        """Execute repaired task code through the worker sandbox.
+
+        This compatibility surface is used by defect repair strategies that
+        verify repaired code independently of the full DAG scheduler loop.
+        """
+        task = self.get_task(task_id)
+        workflow_id = "unknown"
+        task_data: Dict[str, Any] = {"code": code, "repair_attempt": True}
+        if task is not None:
+            workflow_id = task.metadata.get("workflow_id", "unknown")
+            task_data.update(task.metadata)
+            task_data["code"] = code
+            task_data["repair_attempt"] = True
+
+        context = self.execution_contexts.get(task_id)
+        if context is None:
+            context = ExecutionContext(
+                task_id=task_id,
+                workflow_id=workflow_id,
+                metadata=task_data.copy(),
+            )
+            self.execution_contexts[task_id] = context
+
+        result = await self.worker_sandbox.execute(task_id, task_data)
+        verified = await self.worker_sandbox.verify(task_id, result)
+        if not verified:
+            context.metadata["repair_verification_failed"] = True
+            return {
+                "success": False,
+                "error": "Verification failed",
+                "result": result,
+            }
+
+        context.metadata["last_repaired_code"] = code
+        context.metadata["last_repair_result"] = result
+        return {"success": True, "result": result}
+
     async def _execute_with_retry(
         self, task: TaskLike, context: ExecutionContext
     ) -> Dict[str, Any]:

@@ -21,6 +21,7 @@ from agentManager.runtime.task_executor import (
     WorkerSandbox,
 )
 from agentManager.runtime.workflow_coordinator import WorkflowCoordinator
+from agentManager.defect_repair.repair_strategies import RepairResult, RepairStatus
 
 
 class FakeTaskStatus(str, Enum):
@@ -109,6 +110,13 @@ class StubWorkerSandbox(WorkerSandbox):
     async def execute(self, task_id: str, task_data: Dict[str, Any]) -> Dict[str, Any]:
         self.execution_order.append(task_id)
         self.attempt_counts[task_id] = self.attempt_counts.get(task_id, 0) + 1
+        if task_data.get("repair_attempt"):
+            return {
+                "task_id": task_id,
+                "ok": True,
+                "repair_attempt": True,
+                "code": task_data.get("code"),
+            }
         if task_id in self.failing_tasks:
             if self.retry_success and self.attempt_counts[task_id] > 1:
                 return {"task_id": task_id, "ok": True, "attempt": self.attempt_counts[task_id]}
@@ -176,18 +184,49 @@ class InMemoryEngineeringMemory:
         return dict(self.entries.get(namespace, {}))
 
 
+class VerifyingDefectRepairPipeline:
+    """Small repair pipeline stub that verifies repaired code via TaskExecutor."""
+
+    def __init__(self, task_executor: TaskExecutor) -> None:
+        self.task_executor = task_executor
+        self.repair_calls: List[Any] = []
+        self._history: Dict[str, List[RepairResult]] = {}
+
+    async def repair(self, task_run):
+        self.repair_calls.append(task_run)
+        repaired_code = "fixed_code()"
+        result = await self.task_executor.execute(task_run.task_id, repaired_code)
+        status = RepairStatus.SUCCESS if result.get("success") else RepairStatus.FAILED
+        repair_result = RepairResult(
+            status=status,
+            repaired_code=repaired_code if status == RepairStatus.SUCCESS else None,
+            error_message=result.get("error"),
+            attempts=1,
+        )
+        self._history.setdefault(task_run.task_id, []).append(repair_result)
+        return status, repair_result.repaired_code
+
+    def get_repair_history(self, task_id: str) -> List[RepairResult]:
+        return self._history.get(task_id, [])
+
+
 def _build_recovery_harness(
     failing_tasks: Optional[set[str]] = None,
     retry_success: bool = True,
     max_retries: int = 0,
+    enable_defect_repair: bool = False,
+    include_repair_code: bool = False,
 ) -> WorkflowHarness:
     dag = FakeDAGEngine()
+    extract_metadata = {"workflow_id": "wf-e2e"}
+    if include_repair_code:
+        extract_metadata["code"] = "broken_code()"
     dag.add_node(
         FakeDAGNode(
             node_id="extract",
             task_type="io",
             dependencies=[],
-            metadata={"workflow_id": "wf-e2e"},
+            metadata=extract_metadata,
         )
     )
     dag.add_node(
@@ -216,11 +255,15 @@ def _build_recovery_harness(
         max_retries=max_retries,
     )
 
+    defect_repair_pipeline = (
+        VerifyingDefectRepairPipeline(task_executor) if enable_defect_repair else None
+    )
     recovery_engine = RecoveryEngine(
         task_executor=task_executor,
         event_bus=event_bus,
         state_machine=state_machine,
         checkpoint_manager=checkpoint_manager,
+        defect_repair_pipeline=defect_repair_pipeline,
     )
     engineering_memory = InMemoryEngineeringMemory()
     coordinator = WorkflowCoordinator(
@@ -229,6 +272,7 @@ def _build_recovery_harness(
         task_executor=task_executor,
         event_bus=event_bus,
         state_machine=state_machine,
+        recovery_engine=recovery_engine if enable_defect_repair else None,
     )
 
     return WorkflowHarness(
@@ -361,3 +405,56 @@ def test_event_replay_recovery_updates_context_and_records_memory() -> None:
         harness.engineering_memory.get_all(namespace=harness.workflow_id)
     )
     assert memory_entries["recovery:extract:event-replay"]["success"] is True
+
+
+def test_workflow_loop_invokes_defect_repair_and_continues_dependents() -> None:
+    """Failed task should repair in-loop and unblock downstream tasks."""
+    harness = _build_recovery_harness(
+        failing_tasks={"extract"},
+        retry_success=False,
+        max_retries=0,
+        enable_defect_repair=True,
+        include_repair_code=True,
+    )
+
+    result = asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
+
+    assert result.success is True
+    assert result.completed_tasks == ["extract", "transform"]
+    assert result.failed_tasks == []
+    assert harness.dag.get_node("extract").status == FakeTaskStatus.COMPLETED
+    assert harness.dag.get_node("transform").status == FakeTaskStatus.COMPLETED
+    assert harness.state_machine.get_state("extract") == TaskState.COMPLETED
+    assert harness.sandbox.execution_order == ["extract", "extract", "transform"]
+
+    execution_context = harness.task_executor.get_execution_context("extract")
+    assert execution_context is not None
+    assert execution_context.metadata["defect_repair"]["status"] == "success"
+    assert execution_context.metadata["defect_repair"]["repaired_code_present"] is True
+
+
+def test_workflow_loop_missing_repair_code_blocks_without_downstream_corruption() -> None:
+    """Defect repair opt-in should fail closed when task metadata has no code."""
+    harness = _build_recovery_harness(
+        failing_tasks={"extract"},
+        retry_success=False,
+        max_retries=0,
+        enable_defect_repair=True,
+        include_repair_code=False,
+    )
+
+    result = asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
+
+    assert result.success is False
+    assert result.completed_tasks == []
+    assert result.failed_tasks == ["extract"]
+    assert harness.dag.get_node("extract").status == FakeTaskStatus.FAILED
+    assert harness.dag.get_node("transform").status == FakeTaskStatus.PENDING
+    assert harness.scheduler.get_task_status("transform") == "pending"
+
+    execution_context = harness.task_executor.get_execution_context("extract")
+    assert execution_context is not None
+    assert execution_context.metadata["defect_repair"]["status"] == "skipped"
+    assert "No repairable code" in execution_context.metadata["defect_repair"][
+        "failure_reason"
+    ]

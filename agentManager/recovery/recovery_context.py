@@ -29,6 +29,7 @@ class RecoveryStrategy(str, Enum):
     RETRY = "retry"
     EVENT_REPLAY = "event_replay"
     SNAPSHOT_RESTORE = "snapshot_restore"
+    DEFECT_REPAIR = "defect_repair"
     HITL = "hitl"  # Human-In-The-Loop
     ESCALATE = "escalate"
 

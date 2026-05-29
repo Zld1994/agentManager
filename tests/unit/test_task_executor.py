@@ -9,9 +9,6 @@ Comprehensive test suite for the TaskExecutor class covering:
 """
 
 import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime
 
 from agentManager.runtime.task_executor import (
     TaskExecutor,
@@ -22,7 +19,7 @@ from agentManager.runtime.execution_context import (
     ExecutionContext,
     ExecutionStatus,
 )
-from agentManager.engine.dag import DAGEngine, DAGNode, TaskStatus
+from agentManager.engine.dag import DAGEngine, DAGNode
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
@@ -56,7 +53,7 @@ class MockWorkerSandbox(WorkerSandbox):
 
     def __init__(self, should_fail: bool = False, verify_fails: bool = False):
         """Initialize mock sandbox.
-        
+
         Args:
             should_fail: Whether execution should fail
             verify_fails: Whether verification should fail
@@ -286,6 +283,62 @@ class TestTaskExecution:
         assert context.status == ExecutionStatus.FAILED
         assert context.error is not None
         assert context.retry_count == 2  # Initial + 1 retry
+
+    @pytest.mark.asyncio
+    async def test_execute_adapter_runs_repaired_code(
+        self, task_executor, sample_task, worker_sandbox
+    ):
+        """Test repair compatibility adapter executes and verifies code."""
+        await task_executor.run_task(sample_task)
+
+        result = await task_executor.execute("task_1", "x = 1")
+
+        assert result["success"] is True
+        assert worker_sandbox.execute_count == 2
+        context = task_executor.get_execution_context("task_1")
+        assert context.metadata["last_repaired_code"] == "x = 1"
+        assert context.metadata["last_repair_result"]["task_id"] == "task_1"
+
+    @pytest.mark.asyncio
+    async def test_execute_adapter_returns_failed_verification(
+        self, dag_engine, scheduler, event_bus, state_machine, checkpoint_manager
+    ):
+        """Test repair compatibility adapter reports verification failures."""
+        sandbox = MockWorkerSandbox(verify_fails=True)
+        executor = TaskExecutor(
+            dag_engine=dag_engine,
+            scheduler=scheduler,
+            worker_sandbox=sandbox,
+            event_bus=event_bus,
+            state_machine=state_machine,
+            checkpoint_manager=checkpoint_manager,
+        )
+
+        result = await executor.execute("task_1", "x = 1")
+
+        assert result["success"] is False
+        assert result["error"] == "Verification failed"
+        assert executor.get_execution_context(
+            "task_1"
+        ).metadata["repair_verification_failed"] is True
+
+    @pytest.mark.asyncio
+    async def test_execute_adapter_propagates_sandbox_exception(
+        self, dag_engine, scheduler, event_bus, state_machine, checkpoint_manager
+    ):
+        """Test repair compatibility adapter lets sandbox exceptions surface."""
+        sandbox = MockWorkerSandbox(should_fail=True)
+        executor = TaskExecutor(
+            dag_engine=dag_engine,
+            scheduler=scheduler,
+            worker_sandbox=sandbox,
+            event_bus=event_bus,
+            state_machine=state_machine,
+            checkpoint_manager=checkpoint_manager,
+        )
+
+        with pytest.raises(Exception, match="Execution failed"):
+            await executor.execute("task_1", "x = 1")
 
 
 class TestStateTransitions:

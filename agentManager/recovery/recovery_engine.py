@@ -6,7 +6,7 @@ task recovery using various strategies based on failure types.
 
 import logging
 import inspect
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 
 from agentManager.recovery.recovery_context import (
@@ -47,6 +47,7 @@ class RecoveryEngine:
         event_bus: BaseEventBus,
         state_machine: StateMachine,
         checkpoint_manager: CheckpointManager,
+        defect_repair_pipeline: Optional[Any] = None,
     ):
         """Initialize RecoveryEngine.
 
@@ -60,6 +61,7 @@ class RecoveryEngine:
         self.event_bus = event_bus
         self.state_machine = state_machine
         self.checkpoint_manager = checkpoint_manager
+        self.defect_repair_pipeline = defect_repair_pipeline
         self.error_classifier = ErrorClassifier()
 
         # Recovery history tracking
@@ -111,6 +113,8 @@ class RecoveryEngine:
                 success = await self._execute_event_replay(ctx)
             elif ctx.recovery_strategy == RecoveryStrategy.SNAPSHOT_RESTORE:
                 success = await self._execute_snapshot_restore(ctx)
+            elif ctx.recovery_strategy == RecoveryStrategy.DEFECT_REPAIR:
+                success = await self._execute_defect_repair(ctx)
             elif ctx.recovery_strategy == RecoveryStrategy.HITL:
                 success = await self._execute_hitl(ctx)
             elif ctx.recovery_strategy == RecoveryStrategy.ESCALATE:
@@ -142,11 +146,16 @@ class RecoveryEngine:
                     f"using strategy {ctx.recovery_strategy.value}"
                 )
                 # Transition to BLOCKED_HITL for manual intervention
-                self.state_machine.transition(
-                    task_id,
-                    TaskState.BLOCKED_HITL,
-                    f"Recovery failed with {ctx.recovery_strategy.value}",
-                )
+                current_state = None
+                get_state = getattr(self.state_machine, "get_state", None)
+                if callable(get_state):
+                    current_state = get_state(task_id)
+                if current_state != TaskState.BLOCKED_HITL:
+                    self.state_machine.transition(
+                        task_id,
+                        TaskState.BLOCKED_HITL,
+                        f"Recovery failed with {ctx.recovery_strategy.value}",
+                    )
 
             return success
 
@@ -384,6 +393,124 @@ class RecoveryEngine:
         except Exception as e:
             logger.error(
                 f"SNAPSHOT_RESTORE strategy failed: {str(e)}", exc_info=True
+            )
+            return False
+
+    async def _execute_defect_repair(self, ctx: RecoveryContext) -> bool:
+        """Execute optional defect repair strategy for repairable task code."""
+        task_id = ctx.task_id
+        logger.info("Executing DEFECT_REPAIR strategy for task %s", task_id)
+        exec_ctx = self._get_or_create_execution_context(ctx)
+        metadata = exec_ctx.metadata
+        repair_meta = metadata.setdefault("defect_repair", {})
+
+        if self.defect_repair_pipeline is None:
+            repair_meta.update(
+                {
+                    "status": "unavailable",
+                    "success": False,
+                    "failure_reason": "Defect repair pipeline is not configured",
+                }
+            )
+            return False
+
+        task = None
+        get_task = getattr(self.task_executor, "get_task", None)
+        if callable(get_task):
+            task = get_task(task_id)
+            if inspect.isawaitable(task):
+                task = await task
+
+        task_metadata: Dict[str, Any] = {}
+        if task is not None and isinstance(getattr(task, "metadata", None), dict):
+            task_metadata = task.metadata
+
+        code = task_metadata.get("code") or task_metadata.get("source_code") or ""
+        if not code:
+            repair_meta.update(
+                {
+                    "status": "skipped",
+                    "success": False,
+                    "failure_reason": "No repairable code found in task metadata",
+                }
+            )
+            return False
+
+        error_msg = exec_ctx.error or ctx.error_msg
+        execution_trace = (
+            task_metadata.get("execution_trace")
+            or task_metadata.get("trace")
+            or error_msg
+        )
+
+        try:
+            from agentManager.defect_repair.repair_pipeline import TaskRun
+            from agentManager.defect_repair.repair_strategies import RepairStatus
+
+            task_run = TaskRun(
+                task_id=task_id,
+                code=code,
+                error_msg=error_msg,
+                execution_trace=execution_trace,
+                code_context=task_metadata.get("code_context", ""),
+                metadata=task_metadata.copy(),
+            )
+            status, repaired_code = await self.defect_repair_pipeline.repair(task_run)
+            history = self.defect_repair_pipeline.get_repair_history(task_id)
+            last_result = history[-1] if history else None
+
+            repair_meta.update(
+                {
+                    "status": status.value,
+                    "success": status == RepairStatus.SUCCESS,
+                    "repaired_code_present": bool(repaired_code),
+                    "attempts": getattr(last_result, "attempts", 0),
+                }
+            )
+            if last_result is not None:
+                repair_meta["error_message"] = getattr(
+                    last_result, "error_message", None
+                )
+                repair_meta["metadata"] = getattr(last_result, "metadata", {})
+
+            if status == RepairStatus.SUCCESS:
+                exec_ctx.mark_completed(
+                    {
+                        "repair_status": status.value,
+                        "repaired_code_present": bool(repaired_code),
+                    }
+                )
+                self._safe_transition(
+                    task_id,
+                    TaskState.COMPLETED,
+                    "Defect repair verified repaired task code",
+                )
+                return True
+
+            if status == RepairStatus.ESCALATED:
+                self._record_manual_intervention(
+                    ctx, RecoveryStrategy.DEFECT_REPAIR.value
+                )
+                self._safe_transition(
+                    task_id,
+                    TaskState.BLOCKED_HITL,
+                    "Defect repair escalated to human review",
+                )
+            return False
+
+        except Exception as exc:
+            repair_meta.update(
+                {
+                    "status": "failed",
+                    "success": False,
+                    "failure_reason": str(exc),
+                }
+            )
+            logger.error(
+                "DEFECT_REPAIR strategy failed for task %s: %s",
+                task_id,
+                exc,
+                exc_info=True,
             )
             return False
 
