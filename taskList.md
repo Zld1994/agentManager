@@ -157,7 +157,7 @@
 
 **目的：** 将静态 Docker 审查转变为可执行验证。
 
-**状态 (2026-05-29)：** 被本地工具/网络阻止，而非已确认的 Compose 或 Dockerfile 架构错误。Windows PowerShell 没有 `docker` 命令。WSL `Ubuntu-24.04` 正在运行，具有 Docker Engine CLI `29.1.3`，但 `docker compose` 和 `docker-compose` 不可用。`docker build -f Dockerfile.prod -t agentmanager:prod .` 连接到了 WSL Docker 守护进程，但在从 Docker Hub 拉取 `python:3.11-slim` 时因 TLS 握手超时失败。在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，然后在重新运行此任务之前验证 Docker Hub 注册表/代理访问。
+**状态 (2026-05-29)：** 仍被本地工具/执行环境阻止，而非已确认的 Compose 或 Dockerfile 架构错误。Windows PowerShell 没有 `docker` 命令。WSL `Ubuntu-24.04` 正在运行，具有 Docker Engine CLI `29.1.3`，Docker 守护进程可响应 `docker info`，但 `docker compose` 和 `docker-compose` 不可用。本次尝试执行 `wsl -d Ubuntu-24.04 -- sudo apt-get update` 安装 Compose v2 时被 Codex 平台提权额度限制拒绝，未能安装 Compose，也未能继续运行 Compose 配置、开发镜像构建、服务启动、健康检查或生产镜像构建。后续操作：在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，并确保 Docker Hub 注册表/代理访问正常后，重新运行以下步骤。
 
 **文件：**
 - 检查：`Dockerfile.dev`

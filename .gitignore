@@ -63,3 +63,6 @@ TASK_COMPLETION_SUMMARY.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# CodeGraph
+.codegraph/

@@ -46,11 +46,11 @@
 - `.venv312\Scripts\python.exe -m pytest -q` - 557 个通过，1 个警告，总覆盖率 85%。
 
 **剩余障碍 (2026-05-29)**:
-- Docker/Compose 验证在本地仍被阻止。Windows PowerShell 没有 `docker` 命令。WSL `Ubuntu-24.04` 正在运行且具有 Docker Engine CLI `29.1.3`，但未安装 `docker compose` 或 `docker-compose`。直接构建生产镜像时连接到了 Docker 守护进程，但在从 Docker Hub 拉取 `python:3.11-slim` 时因 TLS 握手超时失败。后续操作：在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，并确保 Docker Hub 注册表访问/代理设置正常工作。
+- Docker/Compose 验证在本地仍被阻止。Windows PowerShell 没有 `docker` 命令。WSL `Ubuntu-24.04` 正在运行且具有 Docker Engine CLI `29.1.3`，Docker 守护进程可响应 `docker info`，但未安装 `docker compose` 或 `docker-compose`。本次尝试执行 `wsl -d Ubuntu-24.04 -- sudo apt-get update` 以安装 Compose v2 时被 Codex 平台提权额度限制拒绝，因此尚未运行 Compose 配置、开发镜像构建、服务启动、API 健康检查或生产镜像构建。后续操作：在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，并确保 Docker Hub 注册表访问/代理设置正常工作。
 
 ## Obsidian 审查中的待修复项
 
-- 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，使用 `docker compose config` 验证 Docker Compose 配置。
+- 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。
 - 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。
 - 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。
 - 添加 OpenTelemetry 追踪和部署文档，超越持久化后端接口。
