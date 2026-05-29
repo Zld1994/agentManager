@@ -15,6 +15,7 @@ from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
+from agentManager.observability.logging import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,9 @@ class RedisStreamEventBus(BaseEventBus):
             raise RuntimeError("Redis client not connected. Call connect() first.")
 
         try:
+            correlation_id = get_correlation_id()
+            if correlation_id and "correlation_id" not in event.payload:
+                event.payload = {**event.payload, "correlation_id": correlation_id}
             event_data = {
                 "event_type": event.event_type.value,
                 "workflow_id": event.workflow_id,

@@ -89,95 +89,147 @@ class TestHealthEndpoint:
         assert "running_tasks" in data
         assert "completed_tasks" in data
 
+    def test_request_id_header_is_preserved(self, client):
+        """API responses should include the incoming request correlation ID."""
+        response = client.get("/health", headers={"X-Request-ID": "req-123"})
+
+        assert response.status_code == 200
+        assert response.headers["X-Request-ID"] == "req-123"
+
 
 class TestTaskCreation:
     """Test task creation endpoints."""
 
     def test_create_task(self, client):
         """Test creating a task."""
-        response = client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "data_processing",
-            "dependencies": [],
-        })
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+        )
         assert response.status_code == 201
         data = response.json()
         assert data["node_id"] == "task_1"
         assert data["task_type"] == "data_processing"
         assert data["status"] == "pending"
 
+    def test_create_task_adds_request_id_to_event_payload(self, client):
+        """Task creation events should carry request correlation IDs."""
+        response = client.post(
+            "/tasks",
+            headers={"X-Request-ID": "req-abc"},
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+        )
+
+        assert response.status_code == 201
+        assert event_bus.events[-1].payload["correlation_id"] == "req-abc"
+
     def test_create_task_with_dependencies(self, client):
         """Test creating task with dependencies."""
         # Create first task
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+
         # Create second task with dependency
-        response = client.post("/tasks", json={
-            "node_id": "task_2",
-            "task_type": "type2",
-            "dependencies": ["task_1"],
-        })
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_2",
+                "task_type": "type2",
+                "dependencies": ["task_1"],
+            },
+        )
         assert response.status_code == 201
         data = response.json()
         assert "task_1" in data["dependencies"]
 
     def test_create_task_with_invalid_dependency(self, client):
         """Test creating task with nonexistent dependency."""
-        response = client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-            "dependencies": ["task_999"],
-        })
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+                "dependencies": ["task_999"],
+            },
+        )
         assert response.status_code == 400
         assert "not found" in response.json()["detail"]
         assert "task_1" not in dag_engine.nodes
 
     def test_create_task_rejects_invalid_node_id(self, client):
         """Test node ID validation."""
-        response = client.post("/tasks", json={
-            "node_id": "bad id",
-            "task_type": "type1",
-        })
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "bad id",
+                "task_type": "type1",
+            },
+        )
         assert response.status_code == 422
 
     def test_create_task_deduplicates_dependencies(self, client):
         """Test dependency validation removes duplicates."""
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        response = client.post("/tasks", json={
-            "node_id": "task_2",
-            "task_type": "type2",
-            "dependencies": ["task_1", "task_1"],
-        })
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_2",
+                "task_type": "type2",
+                "dependencies": ["task_1", "task_1"],
+            },
+        )
         assert response.status_code == 201
         assert response.json()["dependencies"] == ["task_1"]
 
     def test_create_task_with_cycle(self, client):
         """Test that creating cycle is prevented."""
         # Create task_1
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+
         # Create task_2 depending on task_1
-        client.post("/tasks", json={
-            "node_id": "task_2",
-            "task_type": "type2",
-            "dependencies": ["task_1"],
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_2",
+                "task_type": "type2",
+                "dependencies": ["task_1"],
+            },
+        )
+
         # Try to create cycle: task_1 depends on task_2
-        response = client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-            "dependencies": ["task_2"],
-        })
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+                "dependencies": ["task_2"],
+            },
+        )
         # Should fail because task_1 already exists
         assert response.status_code == 400
 
@@ -188,11 +240,14 @@ class TestTaskRetrieval:
     def test_get_task(self, client):
         """Test getting task information."""
         # Create task
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+
         # Get task
         response = client.get("/tasks/task_1")
         assert response.status_code == 200
@@ -216,11 +271,14 @@ class TestTaskRetrieval:
     def test_get_ready_tasks_with_no_dependencies(self, client):
         """Test getting ready tasks with no dependencies."""
         # Create task with no dependencies
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+
         response = client.get("/tasks/ready")
         assert response.status_code == 200
         data = response.json()
@@ -229,18 +287,24 @@ class TestTaskRetrieval:
     def test_get_ready_tasks_with_pending_dependencies(self, client):
         """Test that tasks with pending dependencies are not ready."""
         # Create task_1
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+
         # Create task_2 depending on task_1
-        client.post("/tasks", json={
-            "node_id": "task_2",
-            "task_type": "type2",
-            "dependencies": ["task_1"],
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_2",
+                "task_type": "type2",
+                "dependencies": ["task_1"],
+            },
+        )
+
         response = client.get("/tasks/ready")
         data = response.json()
         assert "task_1" in data["ready_tasks"]
@@ -248,6 +312,7 @@ class TestTaskRetrieval:
 
     def test_get_ready_tasks_handles_internal_error(self, client, monkeypatch):
         """Test get ready tasks returns a controlled 500 response."""
+
         def fail():
             raise RuntimeError("boom")
 
@@ -264,11 +329,14 @@ class TestTaskCompletion:
     def test_complete_task(self, client):
         """Test completing a task."""
         # Create task
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+
         # Complete task
         response = client.post("/tasks/task_1/complete")
         assert response.status_code == 200
@@ -283,11 +351,14 @@ class TestTaskCompletion:
     def test_fail_task(self, client):
         """Test failing a task."""
         # Create task
-        client.post("/tasks", json={
-            "node_id": "task_1",
-            "task_type": "type1",
-        })
-        
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+
         # Fail task
         response = client.post("/tasks/task_1/fail?reason=test_failure")
         assert response.status_code == 200

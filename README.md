@@ -21,7 +21,6 @@ agentManager 是一个 AI Agent 控制平面的原型实现。它提供了任务
 
 ### 🔄 Planned (Phase 2-4)
 - FastAPI service with full CRUD
-- OpenTelemetry/Prometheus observability
 - Real L1-L4 repair workflow
 - Docker sandbox hardening
 - GitHub Actions CI/CD
@@ -86,6 +85,26 @@ QDRANT_API_KEY=...
 PostgreSQL, Redis, S3/MinIO, and Qdrant clients, so a live service stack is not required for the
 default test workflow.
 
+### Observability Configuration
+
+The API installs a request correlation middleware and exposes Prometheus metrics at `/metrics`.
+Structured JSON logs, audit helpers, and local-safe tracing hooks for workflow, task, and recovery
+operations are configured through environment variables:
+
+```bash
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+REQUEST_CORRELATION_HEADER=X-Request-ID
+WORKFLOW_CORRELATION_METADATA_KEY=correlation_id
+AUDIT_LOGGER_NAME=agentManager.audit
+OTEL_TRACING_ENABLED=false
+OTEL_SERVICE_NAME=agentManager
+OTEL_EXPORTER_OTLP_ENDPOINT=
+```
+
+Tracing remains disabled by default for local development. `OTEL_TRACING_ENABLED=true` records the
+opt-in setting for deployments that wire a collector/exporter around these hooks.
+
 ### Test API Endpoints
 ```bash
 # Health check
@@ -122,6 +141,7 @@ agentManager/
 ├── memory/
 │   ├── memory_system.py
 │   └── task_history.py
+├── observability/                  # Logging, audit, and tracing helpers
 ├── runtime/                        # Reserved for Phase 2
 │   └── __init__.py
 └── __init__.py

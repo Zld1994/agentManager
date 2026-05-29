@@ -9,6 +9,8 @@ import os
 from typing import Any
 from typing import Set
 
+from agentManager.observability.audit import audit_config_validation_failed
+
 logger = logging.getLogger(__name__)
 
 # Common weak passwords to detect
@@ -52,6 +54,7 @@ def validate_settings(settings: dict[str, str] | None = None) -> None:
     for key, value in settings.items():
         if value and value.lower() in WEAK_PASSWORDS:
             weak_found.add(key)
+            audit_config_validation_failed(key, "weak password")
             logger.error(f"Weak password detected for {key}")
 
     if weak_found:
@@ -113,5 +116,27 @@ def get_sandbox_policy_settings() -> dict[str, Any]:
         "memory_limit": os.getenv("SANDBOX_MEMORY_LIMIT", "512m"),
         "read_only_rootfs": _parse_bool_setting(
             os.getenv("SANDBOX_READ_ONLY_ROOTFS", "true")
+        ),
+    }
+
+
+def get_observability_settings() -> dict[str, Any]:
+    """Get logging, audit, and tracing settings from environment variables."""
+    return {
+        "log_level": os.getenv("LOG_LEVEL", "INFO").upper(),
+        "log_format": os.getenv("LOG_FORMAT", "text").lower(),
+        "request_correlation_header": os.getenv(
+            "REQUEST_CORRELATION_HEADER", "X-Request-ID"
+        ),
+        "workflow_correlation_metadata_key": os.getenv(
+            "WORKFLOW_CORRELATION_METADATA_KEY", "correlation_id"
+        ),
+        "audit_logger_name": os.getenv("AUDIT_LOGGER_NAME", "agentManager.audit"),
+        "otel_tracing_enabled": _parse_bool_setting(
+            os.getenv("OTEL_TRACING_ENABLED", "false")
+        ),
+        "otel_service_name": os.getenv("OTEL_SERVICE_NAME", "agentManager"),
+        "otel_exporter_otlp_endpoint": os.getenv(
+            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
         ),
     }

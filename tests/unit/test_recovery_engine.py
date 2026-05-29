@@ -307,6 +307,73 @@ class TestRecoveryEngine:
         mock_dependencies["state_machine"].transition.assert_called()
 
     @pytest.mark.asyncio
+    async def test_execute_recovery_traces_recovery_operation(
+        self, mock_dependencies, monkeypatch
+    ):
+        """Recovery execution should create an observability span."""
+        spans = []
+
+        class RecordingSpan:
+            def __init__(self, name, **attributes):
+                self.name = name
+                self.attributes = dict(attributes)
+
+            def __enter__(self):
+                spans.append(self)
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def set_attribute(self, key, value):
+                self.attributes[key] = value
+
+        monkeypatch.setattr(
+            "agentManager.recovery.recovery_engine.trace_operation",
+            lambda name, **attributes: RecordingSpan(name, **attributes),
+        )
+        engine = RecoveryEngine(**mock_dependencies)
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.TIMEOUT,
+            error_msg="Timeout",
+            recovery_strategy=RecoveryStrategy.RETRY,
+        )
+
+        await engine.execute_recovery(ctx)
+
+        assert spans[0].name == "recovery.execute"
+        assert spans[0].attributes["task_id"] == "task_1"
+        assert spans[0].attributes["workflow_id"] == "workflow_1"
+
+    @pytest.mark.asyncio
+    async def test_execute_escalate_strategy_records_audit_event(
+        self, mock_dependencies, monkeypatch
+    ):
+        """Successful escalation should still be audited."""
+        recorded = []
+        monkeypatch.setattr(
+            "agentManager.recovery.recovery_engine.audit_recovery_escalated",
+            lambda workflow_id, task_id, reason: recorded.append(
+                (workflow_id, task_id, reason)
+            ),
+        )
+        engine = RecoveryEngine(**mock_dependencies)
+        ctx = RecoveryContext(
+            task_id="task_1",
+            workflow_id="workflow_1",
+            failure_type=FailureType.UNKNOWN,
+            error_msg="Unknown failure",
+            recovery_strategy=RecoveryStrategy.ESCALATE,
+        )
+
+        result = await engine.execute_recovery(ctx)
+
+        assert result is True
+        assert recorded == [("workflow_1", "task_1", "Unknown failure")]
+
+    @pytest.mark.asyncio
     async def test_execute_event_replay_strategy(self, mock_dependencies):
         """Test EVENT_REPLAY recovery strategy execution."""
         engine = RecoveryEngine(**mock_dependencies)

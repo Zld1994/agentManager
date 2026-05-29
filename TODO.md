@@ -53,7 +53,8 @@
 - 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。
 - 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。
 - 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。
-- 添加 OpenTelemetry 追踪和部署文档，超越持久化后端接口。
+- 继续深化 OpenTelemetry 导出器集成和部署文档；当前已有本地默认禁用的 tracing
+  钩子、审计事件助手、JSON 日志和请求关联 ID。
 
 ## 建议的重构路线图
 

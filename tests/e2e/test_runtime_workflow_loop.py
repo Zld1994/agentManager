@@ -240,6 +240,79 @@ def test_workflow_coordinator_runs_end_to_end_successfully() -> None:
     assert event_types.count(EventType.TASK_COMPLETED) == 3
 
 
+def test_workflow_coordinator_traces_workflow_run(monkeypatch) -> None:
+    """Coordinator should create a workflow-level observability span."""
+    spans = []
+
+    class RecordingSpan:
+        def __init__(self, name, **attributes):
+            self.name = name
+            self.attributes = dict(attributes)
+
+        def __enter__(self):
+            spans.append(self)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def set_attribute(self, key, value):
+            self.attributes[key] = value
+
+    monkeypatch.setattr(
+        "agentManager.runtime.workflow_coordinator.trace_operation",
+        lambda name, **attributes: RecordingSpan(name, **attributes),
+    )
+    harness = _build_harness()
+
+    asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
+
+    assert spans[0].name == "workflow.run"
+    assert spans[0].attributes["workflow_id"] == harness.workflow_id
+    assert spans[0].attributes["task_count"] == 3
+
+
+def test_workflow_coordinator_closes_trace_on_unexpected_error(monkeypatch) -> None:
+    """Coordinator spans should close and record unexpected exceptions."""
+    spans = []
+
+    class RecordingSpan:
+        def __init__(self, name, **attributes):
+            self.name = name
+            self.attributes = dict(attributes)
+            self.error = None
+
+        def __enter__(self):
+            spans.append(self)
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            if exc is not None:
+                self.error = str(exc)
+            return False
+
+        def set_attribute(self, key, value):
+            self.attributes[key] = value
+
+    monkeypatch.setattr(
+        "agentManager.runtime.workflow_coordinator.trace_operation",
+        lambda name, **attributes: RecordingSpan(name, **attributes),
+    )
+    harness = _build_harness()
+    monkeypatch.setattr(
+        harness.coordinator,
+        "_register_missing_tasks",
+        lambda: (_ for _ in ()).throw(RuntimeError("registration failed")),
+    )
+
+    try:
+        asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
+    except RuntimeError:
+        pass
+
+    assert spans[0].error == "registration failed"
+
+
 def test_workflow_coordinator_marks_failures_and_emits_workflow_failed() -> None:
     """Coordinator should mark failed tasks and publish WORKFLOW_FAILED."""
     harness = _build_harness(failing_tasks={"transform"})

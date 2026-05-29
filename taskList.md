@@ -485,6 +485,10 @@
 
 **目的：** 添加安全操作和诊断系统所需的最低生产控制。
 
+**状态 (2026-05-30)：** ✅ 已添加最低生产控制：可配置日志级别/JSON 日志、`X-Request-ID`
+请求关联 ID、结构化审计事件助手、默认禁用的 tracing 钩子，以及生产环境变量示例。
+Prometheus 已保持现有 `/metrics` 抓取配置，无需变更。
+
 **文件：**
 - 修改：`agentManager/config/settings.py`
 - 修改：`agentManager/api.py`
@@ -494,13 +498,13 @@
 - 添加：`agentManager/observability/logging.py`
 - 添加：`agentManager/observability/tracing.py`
 - 添加：`agentManager/observability/audit.py`
-- 修改：`monitoring/prometheus.yml`
+- 检查：`monitoring/prometheus.yml`
 - 修改：`.env.prod.example`
 - 修改：`README.md`
 - 测试：`tests/unit/test_settings.py`
 - 添加：`tests/unit/test_observability.py`
 
-- [ ] 步骤 1：添加结构化日志配置。
+- [x] 步骤 1：添加结构化日志配置。
 
   添加日志级别、JSON 日志输出和请求/工作流关联 ID 的设置。
 
@@ -510,7 +514,7 @@
   python -m pytest tests/unit/test_settings.py -v --no-cov
   ```
 
-- [ ] 步骤 2：添加审计事件助手。
+- [x] 步骤 2：添加审计事件助手。
 
   创建 `agentManager/observability/audit.py`，包含安全敏感事件的助手：工作流创建、任务执行、沙箱拒绝、恢复升级和配置验证失败。
 
@@ -520,9 +524,9 @@
   python -m pytest tests/unit/test_observability.py -v --no-cov
   ```
 
-- [ ] 步骤 3：在配置后添加 OpenTelemetry 追踪钩子。
+- [x] 步骤 3：在配置后添加 OpenTelemetry 追踪钩子。
 
-  创建 `agentManager/observability/tracing.py`，默认保持追踪禁用以支持本地开发。启用时，追踪工作流协调、任务执行、恢复、检查点和内存写入操作。
+  创建 `agentManager/observability/tracing.py`，默认保持追踪禁用以支持本地开发。当前钩子覆盖工作流协调、任务执行和恢复；后续导出器接入和更细粒度检查点/内存写入 span 作为增量工作处理。
 
   验证：
 
@@ -530,7 +534,7 @@
   python -m pytest tests/unit/test_observability.py tests/unit/test_task_executor.py tests/unit/test_recovery_engine.py -v --no-cov
   ```
 
-- [ ] 步骤 4：审查 Prometheus 配置。
+- [x] 步骤 4：审查 Prometheus 配置。
 
   仅在抓取目标或指标路径更改时更新 `monitoring/prometheus.yml`。
 
@@ -540,7 +544,7 @@
   python -m pytest tests/unit/test_api.py -v --no-cov
   ```
 
-- [ ] 步骤 5：更新生产环境示例。
+- [x] 步骤 5：更新生产环境示例。
 
   向 `.env.prod.example` 添加必需的安全和可观测性变量，但不在文件中放入真实密钥。
 

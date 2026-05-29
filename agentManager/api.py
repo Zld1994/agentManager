@@ -3,7 +3,7 @@
 This module provides REST API endpoints for workflow and task management.
 """
 
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any
@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 import logging
 import time
 import re
+import uuid
 
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
@@ -18,9 +19,20 @@ from agentManager.engine.dag import DAGEngine, DAGNode, TaskStatus
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.engine.event_bus import EventBus, EventType, Event
 from agentManager.engine.scheduler import SchedulerEngine
+from agentManager.config.settings import get_observability_settings
+from agentManager.observability.logging import (
+    clear_correlation_id,
+    configure_logging,
+    set_correlation_id,
+)
+from agentManager.observability.audit import configure_audit_logger
+from agentManager.observability.tracing import configure_tracing
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+observability_settings = get_observability_settings()
+configure_logging(observability_settings)
+configure_audit_logger(observability_settings)
+configure_tracing(observability_settings)
 logger = logging.getLogger(__name__)
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
@@ -36,6 +48,20 @@ app = FastAPI(
     description="AI Agent Orchestration Control Plane",
     version="0.1.0",
 )
+
+
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Attach a request correlation ID to logs and responses."""
+    header_name = observability_settings["request_correlation_header"]
+    correlation_id = request.headers.get(header_name) or str(uuid.uuid4())
+    set_correlation_id(correlation_id)
+    try:
+        response = await call_next(request)
+        response.headers[header_name] = correlation_id
+        return response
+    finally:
+        clear_correlation_id()
 
 # Initialize core engines
 dag_engine = DAGEngine()
@@ -291,7 +317,10 @@ def create_task(request: TaskRequest):
         event_bus.publish(Event(
             event_type=EventType.TASK_CREATED,
             workflow_id="default",
-            payload={"task_id": request.node_id, "task_type": request.task_type},
+            payload={
+                "task_id": request.node_id,
+                "task_type": request.task_type,
+            },
         ))
 
         return {

@@ -1,7 +1,6 @@
 """Unit tests for Event Bus."""
 
-import pytest
-from agentManager.engine.event_bus import EventBus, Event, EventType
+from agentManager.engine.event_bus import Event, EventBus, EventType
 
 
 class TestEventBus:
@@ -11,12 +10,12 @@ class TestEventBus:
         """Test subscribing and publishing events."""
         bus = EventBus()
         received_events = []
-        
+
         def callback(event):
             received_events.append(event)
-        
+
         bus.subscribe(EventType.TASK_COMPLETED, callback)
-        
+
         event = Event(
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
@@ -27,17 +26,41 @@ class TestEventBus:
         assert len(received_events) == 1
         assert received_events[0].event_id == "evt_1"
 
+    def test_publish_correlation_id_does_not_mutate_original_payload(self):
+        """Request correlation injection should not mutate caller-owned payload."""
+        from agentManager.observability.logging import (
+            clear_correlation_id,
+            set_correlation_id,
+        )
+
+        bus = EventBus()
+        payload = {"task_id": "task_1"}
+        event = Event(
+            event_type=EventType.TASK_CREATED,
+            workflow_id="wf_1",
+            payload=payload,
+        )
+
+        set_correlation_id("req-1")
+        try:
+            bus.publish(event)
+        finally:
+            clear_correlation_id()
+
+        assert payload == {"task_id": "task_1"}
+        assert event.payload["correlation_id"] == "req-1"
+
     def test_wildcard_subscription(self):
         """Test wildcard subscription receives all workflows."""
         bus = EventBus()
         received_events = []
-        
+
         def callback(event):
             received_events.append(event)
-        
+
         # Subscribe to all workflows
         bus.subscribe(EventType.TASK_COMPLETED, callback, workflow_id=None)
-        
+
         # Publish event for specific workflow
         event = Event(
             event_type=EventType.TASK_COMPLETED,
@@ -52,13 +75,13 @@ class TestEventBus:
         """Test subscription for specific workflow."""
         bus = EventBus()
         received_events = []
-        
+
         def callback(event):
             received_events.append(event)
-        
+
         # Subscribe to specific workflow
         bus.subscribe(EventType.TASK_COMPLETED, callback, workflow_id="wf_1")
-        
+
         # Publish event for same workflow
         event1 = Event(
             event_type=EventType.TASK_COMPLETED,
@@ -84,18 +107,18 @@ class TestEventBus:
         bus = EventBus()
         exact_events = []
         wildcard_events = []
-        
+
         def exact_callback(event):
             exact_events.append(event)
-        
+
         def wildcard_callback(event):
             wildcard_events.append(event)
-        
+
         # Subscribe to specific workflow
         bus.subscribe(EventType.TASK_COMPLETED, exact_callback, workflow_id="wf_1")
         # Subscribe to all workflows
         bus.subscribe(EventType.TASK_COMPLETED, wildcard_callback, workflow_id=None)
-        
+
         event = Event(
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",
@@ -111,13 +134,13 @@ class TestEventBus:
         """Test unsubscribing from events."""
         bus = EventBus()
         received_events = []
-        
+
         def callback(event):
             received_events.append(event)
-        
+
         bus.subscribe(EventType.TASK_COMPLETED, callback)
         bus.unsubscribe(EventType.TASK_COMPLETED, callback)
-        
+
         event = Event(
             event_type=EventType.TASK_COMPLETED,
             workflow_id="wf_1",

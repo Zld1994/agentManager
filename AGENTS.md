@@ -18,6 +18,8 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 - `agentManager/engine/event_bus/`: async event bus abstractions and in-memory/Redis implementations.
 - `agentManager/memory/`: profile/session, project, engineering memory, and vector-search backend
   components.
+- `agentManager/observability/`: structured logging, request correlation, audit event helpers,
+  and optional tracing hooks.
 - `agentManager/storage/`: durable repository and object-store interfaces for PostgreSQL state
   persistence and S3-compatible checkpoint storage.
 - `agentManager/recovery/`: recovery context, error classification, and recovery engine.
@@ -154,6 +156,8 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
 - Durable backend client libraries are base dependencies (`psycopg[binary]`, `boto3`,
   `qdrant-client`), but durable services remain opt-in through environment settings; unit tests
   should mock PostgreSQL, object storage, Redis, and Qdrant unless explicitly integration-scoped.
+- Observability defaults are local-safe: text logs, `X-Request-ID` request correlation, audit
+  helpers under `agentManager.audit`, and tracing disabled unless `OTEL_TRACING_ENABLED=true`.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
   may be generated locally. Avoid editing generated metadata by hand unless packaging behavior is
   the target of the task.

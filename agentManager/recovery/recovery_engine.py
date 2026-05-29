@@ -6,6 +6,7 @@ task recovery using various strategies based on failure types.
 
 import logging
 import inspect
+import sys
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone
 
@@ -19,6 +20,8 @@ from agentManager.runtime.task_executor import TaskExecutor, CheckpointManager
 from agentManager.runtime.execution_context import ExecutionContext
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
+from agentManager.observability.audit import audit_recovery_escalated
+from agentManager.observability.tracing import trace_operation
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +89,13 @@ class RecoveryEngine:
 
         task_id = ctx.task_id
         workflow_id = ctx.workflow_id
+        span_cm = trace_operation(
+            "recovery.execute",
+            task_id=task_id,
+            workflow_id=workflow_id,
+            failure_type=ctx.failure_type.value,
+        )
+        span = span_cm.__enter__()
 
         logger.info(
             f"Starting recovery for task {task_id} in workflow {workflow_id} "
@@ -127,6 +137,13 @@ class RecoveryEngine:
 
             # Publish recovery result event
             await self._publish_recovery_event(ctx, success)
+            span.set_attribute("success", success)
+            if ctx.recovery_strategy == RecoveryStrategy.ESCALATE:
+                audit_recovery_escalated(
+                    workflow_id,
+                    task_id,
+                    ctx.error_msg,
+                )
 
             if success:
                 logger.info(
@@ -161,8 +178,11 @@ class RecoveryEngine:
 
         except Exception as e:
             logger.error(f"Recovery execution failed: {str(e)}", exc_info=True)
+            span.set_attribute("success", False)
             await self._publish_recovery_event(ctx, False, str(e))
             return False
+        finally:
+            span_cm.__exit__(*sys.exc_info())
 
     def select_recovery_strategy(
         self, failure_type: FailureType

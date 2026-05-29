@@ -7,6 +7,7 @@ import logging
 from typing import Dict, List, Callable, Optional
 
 from agentManager.engine.event_bus.base import Event, EventType
+from agentManager.observability.logging import get_correlation_id
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,9 @@ class InMemoryEventBus:
         Args:
             event: Event to publish
         """
+        correlation_id = get_correlation_id()
+        if correlation_id and "correlation_id" not in event.payload:
+            event.payload = {**event.payload, "correlation_id": correlation_id}
         self.events.append(event)
         if self.max_events > 0 and len(self.events) > self.max_events:
             del self.events[:len(self.events) - self.max_events]

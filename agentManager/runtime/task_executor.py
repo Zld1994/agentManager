@@ -5,12 +5,15 @@ task execution flow, including lifecycle management, error handling, and recover
 """
 
 import logging
+import sys
 from typing import Dict, Any, Optional, Protocol
 from abc import ABC, abstractmethod
 
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
+from agentManager.observability.audit import audit_task_execution
+from agentManager.observability.tracing import trace_operation
 from agentManager.runtime.execution_context import ExecutionContext
 
 logger = logging.getLogger(__name__)
@@ -171,7 +174,14 @@ class TaskExecutor:
         workflow_id = task.metadata.get("workflow_id", "unknown")
         self._task_registry[task_id] = task
 
+        span_cm = trace_operation(
+            "task.run",
+            task_id=task_id,
+            workflow_id=workflow_id,
+        )
+        span = span_cm.__enter__()
         logger.info(f"Starting execution of task {task_id}")
+        audit_task_execution(workflow_id, task_id)
 
         # Initialize execution context
         context = ExecutionContext(
@@ -238,10 +248,12 @@ class TaskExecutor:
             else:
                 logger.info(f"Task {task_id} completed successfully")
 
+            span.set_attribute("success", True)
             return context
 
         except Exception as e:
             logger.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
+            span.set_attribute("success", False)
             context.mark_failed(str(e))
             self.state_machine.transition(
                 task_id, TaskState.FAILED, f"Task failed: {str(e)}"
@@ -263,6 +275,8 @@ class TaskExecutor:
             )
 
             raise
+        finally:
+            span_cm.__exit__(*sys.exc_info())
 
     async def execute(self, task_id: str, code: str) -> Dict[str, Any]:
         """Execute repaired task code through the worker sandbox.

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from agentManager.config.settings import (
     WEAK_PASSWORDS,
     get_durable_backend_settings,
+    get_observability_settings,
     get_sandbox_policy_settings,
     validate_settings,
 )
@@ -207,3 +208,46 @@ class TestDurableBackendSettings:
             "object_store_secret_key": "secret",
             "vector_backend": "qdrant",
         }
+
+
+class TestObservabilitySettings:
+    """Test production observability environment settings parsing."""
+
+    def test_get_observability_settings_defaults_to_local_safe_values(self):
+        """Observability should be local-safe and tracing disabled by default."""
+        with patch.dict(os.environ, {}, clear=True):
+            settings = get_observability_settings()
+
+        assert settings["log_level"] == "INFO"
+        assert settings["log_format"] == "text"
+        assert settings["request_correlation_header"] == "X-Request-ID"
+        assert settings["workflow_correlation_metadata_key"] == "correlation_id"
+        assert settings["audit_logger_name"] == "agentManager.audit"
+        assert settings["otel_tracing_enabled"] is False
+        assert settings["otel_service_name"] == "agentManager"
+        assert settings["otel_exporter_otlp_endpoint"] == ""
+
+    def test_get_observability_settings_reads_environment(self):
+        """Production observability settings should come from env vars."""
+        env_vars = {
+            "LOG_LEVEL": "debug",
+            "LOG_FORMAT": "json",
+            "REQUEST_CORRELATION_HEADER": "X-Correlation-ID",
+            "WORKFLOW_CORRELATION_METADATA_KEY": "workflow_request_id",
+            "AUDIT_LOGGER_NAME": "custom.audit",
+            "OTEL_TRACING_ENABLED": "true",
+            "OTEL_SERVICE_NAME": "agentmanager-prod",
+            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel:4318",
+        }
+
+        with patch.dict(os.environ, env_vars, clear=True):
+            settings = get_observability_settings()
+
+        assert settings["log_level"] == "DEBUG"
+        assert settings["log_format"] == "json"
+        assert settings["request_correlation_header"] == "X-Correlation-ID"
+        assert settings["workflow_correlation_metadata_key"] == "workflow_request_id"
+        assert settings["audit_logger_name"] == "custom.audit"
+        assert settings["otel_tracing_enabled"] is True
+        assert settings["otel_service_name"] == "agentmanager-prod"
+        assert settings["otel_exporter_otlp_endpoint"] == "http://otel:4318"

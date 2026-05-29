@@ -223,6 +223,39 @@ class TestTaskExecution:
         assert context.retry_count == 0
 
     @pytest.mark.asyncio
+    async def test_run_task_traces_task_execution(
+        self, task_executor, sample_task, monkeypatch
+    ):
+        """Task execution should create an observability span."""
+        spans = []
+
+        class RecordingSpan:
+            def __init__(self, name, **attributes):
+                self.name = name
+                self.attributes = dict(attributes)
+
+            def __enter__(self):
+                spans.append(self)
+                return self
+
+            def __exit__(self, exc_type, exc, traceback):
+                return False
+
+            def set_attribute(self, key, value):
+                self.attributes[key] = value
+
+        monkeypatch.setattr(
+            "agentManager.runtime.task_executor.trace_operation",
+            lambda name, **attributes: RecordingSpan(name, **attributes),
+        )
+
+        await task_executor.run_task(sample_task)
+
+        assert spans[0].name == "task.run"
+        assert spans[0].attributes["task_id"] == "task_1"
+        assert spans[0].attributes["workflow_id"] == "workflow_1"
+
+    @pytest.mark.asyncio
     async def test_task_execution_with_retry(
         self, dag_engine, scheduler, event_bus, state_machine, checkpoint_manager
     ):

@@ -12,6 +12,7 @@ import logging
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine, TaskState
+from agentManager.observability.tracing import trace_operation
 from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy
 from agentManager.runtime.execution_context import ExecutionContext
 from agentManager.runtime.task_executor import TaskExecutor
@@ -53,77 +54,85 @@ class WorkflowCoordinator:
 
     async def run_workflow(self, workflow_id: str) -> WorkflowRunResult:
         """Run workflow tasks until completion/failure or loop guard timeout."""
-        self._register_missing_tasks()
-        await self._publish(
-            EventType.WORKFLOW_STARTED,
-            workflow_id,
-            {"task_count": len(self.dag_engine.nodes)},
-        )
-
-        idle_iterations = 0
-        for _ in range(self.max_iterations):
-            ready_tasks = self.dag_engine.get_ready_nodes()
-            self._mark_ready(ready_tasks)
-            self._clear_backoff_for_ready_tasks(ready_tasks)
-            self.scheduler.execute_scheduled_tasks()
-            self._sync_scheduler_failures()
-
-            running_tasks = list(self.scheduler.get_running_tasks())
-            if not running_tasks:
-                if self._all_tasks_terminal():
-                    break
-
-                idle_iterations += 1
-                if idle_iterations > 2:
-                    logger.warning(
-                        "Workflow %s stopped after idle iterations", workflow_id
-                    )
-                    break
-                continue
-
-            idle_iterations = 0
-            for task_id in running_tasks:
-                await self._execute_scheduled_task(task_id)
-
-            if self._all_tasks_terminal():
-                break
-        else:
-            logger.warning(
-                "Workflow %s stopped at max_iterations=%s",
+        with trace_operation(
+            "workflow.run",
+            workflow_id=workflow_id,
+            task_count=len(self.dag_engine.nodes),
+        ) as span:
+            self._register_missing_tasks()
+            await self._publish(
+                EventType.WORKFLOW_STARTED,
                 workflow_id,
-                self.max_iterations,
+                {"task_count": len(self.dag_engine.nodes)},
             )
 
-        completed_tasks = [
-            task_id
-            for task_id, task in self.scheduler.tasks.items()
-            if task.status == "completed"
-        ]
-        failed_tasks = [
-            task_id
-            for task_id, task in self.scheduler.tasks.items()
-            if task.status == "failed"
-        ]
-        success = len(failed_tasks) == 0 and len(completed_tasks) == len(self.scheduler.tasks)
+            idle_iterations = 0
+            for _ in range(self.max_iterations):
+                ready_tasks = self.dag_engine.get_ready_nodes()
+                self._mark_ready(ready_tasks)
+                self._clear_backoff_for_ready_tasks(ready_tasks)
+                self.scheduler.execute_scheduled_tasks()
+                self._sync_scheduler_failures()
 
-        result = WorkflowRunResult(
-            workflow_id=workflow_id,
-            success=success,
-            completed_tasks=completed_tasks,
-            failed_tasks=failed_tasks,
-            execution_contexts=self.task_executor.get_all_contexts(),
-        )
+                running_tasks = list(self.scheduler.get_running_tasks())
+                if not running_tasks:
+                    if self._all_tasks_terminal():
+                        break
 
-        await self._publish(
-            EventType.WORKFLOW_COMPLETED if success else EventType.WORKFLOW_FAILED,
-            workflow_id,
-            {
-                "completed_tasks": result.completed_tasks,
-                "failed_tasks": result.failed_tasks,
-                "task_count": len(self.scheduler.tasks),
-            },
-        )
-        return result
+                    idle_iterations += 1
+                    if idle_iterations > 2:
+                        logger.warning(
+                            "Workflow %s stopped after idle iterations", workflow_id
+                        )
+                        break
+                    continue
+
+                idle_iterations = 0
+                for task_id in running_tasks:
+                    await self._execute_scheduled_task(task_id)
+
+                if self._all_tasks_terminal():
+                    break
+            else:
+                logger.warning(
+                    "Workflow %s stopped at max_iterations=%s",
+                    workflow_id,
+                    self.max_iterations,
+                )
+
+            completed_tasks = [
+                task_id
+                for task_id, task in self.scheduler.tasks.items()
+                if task.status == "completed"
+            ]
+            failed_tasks = [
+                task_id
+                for task_id, task in self.scheduler.tasks.items()
+                if task.status == "failed"
+            ]
+            success = len(failed_tasks) == 0 and len(completed_tasks) == len(
+                self.scheduler.tasks
+            )
+
+            result = WorkflowRunResult(
+                workflow_id=workflow_id,
+                success=success,
+                completed_tasks=completed_tasks,
+                failed_tasks=failed_tasks,
+                execution_contexts=self.task_executor.get_all_contexts(),
+            )
+
+            await self._publish(
+                EventType.WORKFLOW_COMPLETED if success else EventType.WORKFLOW_FAILED,
+                workflow_id,
+                {
+                    "completed_tasks": result.completed_tasks,
+                    "failed_tasks": result.failed_tasks,
+                    "task_count": len(self.scheduler.tasks),
+                },
+            )
+            span.set_attribute("success", success)
+            return result
 
     def _register_missing_tasks(self) -> None:
         """Register DAG nodes with scheduler and state machine when needed."""
