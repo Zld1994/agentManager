@@ -149,6 +149,8 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
 - Python 3.12 is the current local verification path. A repo-local `.venv312` may exist and can run
   `tests/unit/test_api.py` and the default `pytest` suite. Python 3.15 remains unsuitable for full
   FastAPI verification because dependency wheels may be unavailable.
+- Coverage data is configured by `.coveragerc` to use `${TEMP}/agentmanager.coverage`, avoiding
+  Windows file-lock issues when pytest-cov writes coverage SQLite files under the repository root.
 - Durable backend client libraries are base dependencies (`psycopg[binary]`, `boto3`,
   `qdrant-client`), but durable services remain opt-in through environment settings; unit tests
   should mock PostgreSQL, object storage, Redis, and Qdrant unless explicitly integration-scoped.

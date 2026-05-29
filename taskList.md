@@ -1,55 +1,55 @@
-# agentManager Maintenance Implementation Plan
+# agentManager 维护实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **面向智能工作者：** 必需子技能：使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` 逐任务实施此计划。步骤使用复选框 (`- [ ]`) 语法进行跟踪。
 
-**Goal:** Turn the remaining high-priority TODO items into a testable, production-oriented maintenance roadmap.
+**目标：** 将剩余的高优先级待办事项转变为可测试、面向生产的维护路线图。
 
-**Architecture:** Start by restoring trustworthy verification in a supported Python and Docker environment. Then harden runtime safety, persistence, execution orchestration, reporting, and production observability in small, independently testable slices.
+**架构：** 首先在支持的 Python 和 Docker 环境中恢复可信验证。然后以小型、独立可测试的切片形式强化运行时安全性、持久性、执行编排、报告和生产可观测性。
 
-**Tech Stack:** Python 3.10+, FastAPI, pytest, pytest-asyncio, Docker Compose, Redis Streams, PostgreSQL, object storage, Prometheus, OpenTelemetry, GitHub Actions.
-
----
-
-## Scope
-
-This plan decomposes the first 8 unfinished items from `TODO.md`:
-
-1. Restore trusted test verification.
-2. Complete full e2e validation.
-3. Validate Docker and Compose.
-4. Implement durable backend roadmap.
-5. Harden `WorkerSandbox`.
-6. Make completion reports CI-backed.
-7. Complete the end-to-end execution loop.
-8. Add production security and observability.
-
-## Working Rules
-
-- Keep each task small enough to review independently.
-- Prefer new focused tests before implementation changes.
-- Preserve unrelated local changes. Check `git status --short` before each task.
-- Use Python 3.11 or 3.12 for verification until Python 3.15 dependency wheels are reliable.
-- Run `flake8 --jobs=1` if multiprocessing lint runs fail in this Windows environment.
-- Update `TODO.md`, `README.md`, `docs/api.md`, or `AGENTS.md` only when the implemented change affects documented behavior or workflow.
+**技术栈：** Python 3.10+、FastAPI、pytest、pytest-asyncio、Docker Compose、Redis Streams、PostgreSQL、对象存储、Prometheus、OpenTelemetry、GitHub Actions。
 
 ---
 
-## Task 1: Restore Trusted Test Verification
+## 范围
 
-**Purpose:** Remove the current local verification blocker by establishing a supported Python test path for API and full-suite runs.
+本计划分解 `TODO.md` 中前 8 个未完成项：
 
-**Status (2026-05-29):** Completed locally on Python 3.12.10. `winget install Python.Python.3.12` installed Python 3.12, `.venv312` was created, `.venv312\Scripts\python.exe -m pip install -e ".[dev]"` completed successfully, `.venv312\Scripts\python.exe -m pytest tests/unit/test_api.py -q --no-cov` passed with 28 tests, and `.venv312\Scripts\python.exe -m pytest` passed with 530 tests and 85% total coverage. The run still needs normal CI confirmation, but the local Python 3.15 dependency blocker is no longer active.
+1. 恢复可信测试验证。
+2. 完成完整的端到端验证。
+3. 验证 Docker 和 Compose。
+4. 实施持久化后端路线图。
+5. 强化 `WorkerSandbox`。
+6. 使完成报告由 CI 支持。
+7. 完成端到端执行循环。
+8. 添加生产安全和可观测性。
 
-**Files:**
-- Modify: `.github/workflows/ci.yml`
-- Modify: `pyproject.toml`
-- Test: `tests/unit/test_api.py`
-- Test: full `tests/` suite
-- Document: `TODO.md` after verification status changes
+## 工作规则
 
-- [x] Step 1: Create or select a Python 3.11/3.12 environment.
+- 保持每个任务足够小，以便独立审查。
+- 在实施更改之前优先编写新的聚焦测试。
+- 保留无关的本地更改。每个任务前检查 `git status --short`。
+- 在 Python 3.15 依赖 wheel 可靠之前，使用 Python 3.11 或 3.12 进行验证。
+- 如果在 Windows 环境中多进程 lint 运行失败，运行 `flake8 --jobs=1`。
+- 仅当实现的更改影响文档化行为或工作流时，才更新 `TODO.md`、`README.md`、`docs/api.md` 或 `AGENTS.md`。
 
-  Recommended local commands:
+---
+
+## 任务 1：恢复可信测试验证
+
+**目的：** 通过为 API 和完整套件运行建立支持的 Python 测试路径，消除当前的本地验证障碍。
+
+**状态 (2026-05-29)：** 已重新规划并修复本地失败点。失败根因不是测试用例失败，而是 Windows 工作区路径下 pytest-cov 无法删除或重命名仓库内 coverage SQLite 数据文件，表现为 `.coverage` 或 `.test-artifacts/.coverage.*` 的 `PermissionError: [WinError 5]`。新增 `.coveragerc` 将 coverage 数据文件移动到 `${TEMP}/agentmanager.coverage` 后，`.venv312\Scripts\python.exe -m pytest -q` 通过（557 个测试，覆盖率 85%）。运行仍需正常 CI 确认，但本地 Python 3.15 依赖障碍和 coverage 文件锁障碍已不再阻塞默认测试命令。
+
+**文件：**
+- 修改：`.github/workflows/ci.yml`
+- 修改：`pyproject.toml`
+- 测试：`tests/unit/test_api.py`
+- 测试：完整 `tests/` 套件
+- 文档：验证状态更改后更新 `TODO.md`
+
+- [x] 步骤 1：创建或选择 Python 3.11/3.12 环境。
+
+  推荐本地命令：
 
   ```powershell
   py -3.12 -m venv .venv312
@@ -58,75 +58,79 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   python -m pip install -e ".[dev]"
   ```
 
-  Expected result: `python --version` reports Python 3.11.x or 3.12.x, and editable install completes without building `pydantic-core` from source.
+  预期结果：`python --version` 显示 Python 3.11.x 或 3.12.x，可编辑安装无需从源代码构建 `pydantic-core`。
 
-- [x] Step 2: Verify the blocked API tests first.
+- [x] 步骤 2：首先验证被阻止的 API 测试。
 
   ```powershell
   python -m pytest tests/unit/test_api.py -v --no-cov
   ```
 
-  Expected result: all API tests pass. If failures occur, record the exact failing tests and fix only the API behavior or test expectation causing the failure.
+  预期结果：所有 API 测试通过。如果失败，记录确切的失败测试，并仅修复导致失败的 API 行为或测试预期。
 
-- [x] Step 3: Run the default test command from `pyproject.toml`.
+- [x] 步骤 3：运行 `pyproject.toml` 中的默认测试命令。
 
   ```powershell
   python -m pytest
   ```
 
-  Expected result: the complete suite runs with coverage. If coverage fails while tests pass, capture the coverage threshold gap separately from functional failures.
+  预期结果：完整套件带覆盖率运行。如果覆盖率失败但测试通过，将覆盖率阈值差距与功能失败分开记录。
 
-- [x] Step 4: Make CI run the same supported verification path.
+  当前结果：已通过 `.coveragerc` 将 coverage 数据文件改为 `${TEMP}/agentmanager.coverage`，避免仓库路径下的 Windows 文件锁/重命名失败；`.venv312\Scripts\python.exe -m pytest -q` 通过（557 个测试，覆盖率 85%）。
 
-  In `.github/workflows/ci.yml`, keep the existing Python setup but expand the job to run:
+- [x] 步骤 4：使 CI 运行相同的支持验证路径。
+
+  在 `.github/workflows/ci.yml` 中，保留现有 Python 设置，但扩展作业以运行：
 
   ```bash
   pytest tests/unit/ -v --cov=agentManager --cov-report=term-missing --cov-report=xml
   pytest tests/e2e/ -v --no-cov
   ```
 
-  Expected result: unit and e2e failures are reported separately, so API regressions do not hide e2e status.
+  预期结果：单元测试和端到端测试失败分别报告，因此 API 回归不会隐藏端到端状态。
 
-- [x] Step 5: Record verified status.
+- [x] 步骤 5：记录验证状态。
 
-  Update `TODO.md` only after the commands above have current results. Replace the Python 3.15 blocker note with the verified Python version and command output summary.
+  仅在上述命令获得当前结果后更新 `TODO.md`。将 Python 3.15 障碍说明替换为已验证的 Python 版本和命令输出摘要。
 
 ---
 
-## Task 2: Complete Full E2E Validation
+## 任务 2：完成完整的端到端验证
 
-**Purpose:** Make the full e2e suite reliable enough to run locally and in CI.
+**目的：** 使完整的端到端套件足够可靠，可在本地和 CI 中运行。
 
-**Files:**
-- Inspect: `tests/e2e/conftest.py`
-- Inspect: `tests/e2e/test_performance.py`
-- Inspect: `tests/e2e/test_runtime_workflow_loop.py`
-- Modify or add focused tests under: `tests/e2e/`
-- Document: `TODO.md` if an environment-only limitation remains
+**状态 (2026-05-29)：** `.venv312\Scripts\python.exe -m pytest tests/e2e/ -q --no-cov` 当前通过（10 个测试，1 个 StarletteDeprecationWarning）。任务 2 不再是任务 3 的前置阻塞。
 
-- [x] Step 1: Reproduce the full e2e result in Python 3.11/3.12.
+**文件：**
+- 检查：`tests/e2e/conftest.py`
+- 检查：`tests/e2e/test_performance.py`
+- 检查：`tests/e2e/test_runtime_workflow_loop.py`
+- 修改或添加：`tests/e2e/` 下的聚焦测试
+- 文档：如果环境限制仍然存在，更新 `TODO.md`
+
+- [x] 步骤 1：在 Python 3.11/3.12 中重现完整的端到端结果。
 
   ```powershell
   python -m pytest tests/e2e/ -v --no-cov
   ```
 
-  Expected result: either all e2e tests pass or failures identify specific temp-directory cleanup, timing, or platform assumptions.
+  预期结果：所有端到端测试通过，或失败标识特定的临时目录清理、时序或平台假设问题。
 
-- [x] Step 2: Isolate Windows temp cleanup failures.
+- [x] 步骤 2：隔离 Windows 临时文件清理失败。
 
-  Inspect fixtures in `tests/e2e/conftest.py` and replace fragile cleanup with `tmp_path` or `tmp_path_factory` owned by pytest where possible.
+  检查 `tests/e2e/conftest.py` 中的 fixtures，并尽可能用 pytest 拥有的 `tmp_path` 或 `tmp_path_factory` 替换脆弱的清理逻辑。
 
-  Verification command:
+  验证命令：
 
   ```powershell
   python -m pytest tests/e2e/ -v --no-cov --maxfail=1
   ```
 
-  Expected result: no failure caused only by deleting temp directories after the test body already passed.
+  预期结果：不存在仅因测试主体通过后删除临时目录而导致的失败。
 
-- [x] Step 3: Remove hidden runtime dependencies from e2e tests.
+- [x] 步骤 3：从端到端测试中移除隐藏的运行时依赖。
 
-  Keep tests pointed at existing modules only:
+  保持测试仅指向现有模块：
 
   - `agentManager.runtime.workflow_coordinator`
   - `agentManager.runtime.task_executor`
@@ -135,109 +139,109 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   - `agentManager.engine.event_bus`
   - `agentManager.memory`
 
-  Expected result: e2e tests do not import missing packages or services unless the test is explicitly integration-scoped.
+  预期结果：端到端测试不导入缺失的包或服务，除非测试明确标记为集成范围。
 
-- [x] Step 4: Add CI e2e execution.
+- [x] 步骤 4：添加 CI 端到端执行。
 
-  In `.github/workflows/ci.yml`, run e2e tests after unit tests:
+  在 `.github/workflows/ci.yml` 中，在单元测试后运行端到端测试：
 
   ```bash
   pytest tests/e2e/ -v --no-cov
   ```
 
-  Expected result: CI clearly reports whether e2e is green, skipped for a declared reason, or failing.
+  预期结果：CI 清晰报告端到端测试是通过、因声明原因跳过还是失败。
 
 ---
 
-## Task 3: Validate Docker and Compose
+## 任务 3：验证 Docker 和 Compose
 
-**Purpose:** Turn static Docker review into executable validation.
+**目的：** 将静态 Docker 审查转变为可执行验证。
 
-**Status (2026-05-29):** Blocked by local tooling/network, not by a confirmed Compose or Dockerfile schema error. Windows PowerShell has no `docker` command. WSL `Ubuntu-24.04` is running with Docker Engine CLI `29.1.3`, but `docker compose` and `docker-compose` are unavailable. `docker build -f Dockerfile.prod -t agentmanager:prod .` reached the WSL Docker daemon and then failed pulling `python:3.11-slim` from Docker Hub with a TLS handshake timeout. Install Docker Compose v2 in WSL or expose Docker Desktop Compose on Windows, then verify Docker Hub registry/proxy access before rerunning this task.
+**状态 (2026-05-29)：** 被本地工具/网络阻止，而非已确认的 Compose 或 Dockerfile 架构错误。Windows PowerShell 没有 `docker` 命令。WSL `Ubuntu-24.04` 正在运行，具有 Docker Engine CLI `29.1.3`，但 `docker compose` 和 `docker-compose` 不可用。`docker build -f Dockerfile.prod -t agentmanager:prod .` 连接到了 WSL Docker 守护进程，但在从 Docker Hub 拉取 `python:3.11-slim` 时因 TLS 握手超时失败。在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，然后在重新运行此任务之前验证 Docker Hub 注册表/代理访问。
 
-**Files:**
-- Inspect: `Dockerfile.dev`
-- Inspect: `Dockerfile.prod`
-- Inspect: `docker-compose.yml`
-- Inspect: `.env.example`
-- Inspect: `.env.prod.example`
-- Inspect: `monitoring/prometheus.yml`
-- Document: `README.md` or `TODO.md` if runtime prerequisites change
+**文件：**
+- 检查：`Dockerfile.dev`
+- 检查：`Dockerfile.prod`
+- 检查：`docker-compose.yml`
+- 检查：`.env.example`
+- 检查：`.env.prod.example`
+- 检查：`monitoring/prometheus.yml`
+- 文档：如果运行时前提条件更改，更新 `README.md` 或 `TODO.md`
 
-- [ ] Step 1: Validate Compose syntax on a Docker-enabled machine.
+- [ ] 步骤 1：在启用 Docker 的机器上验证 Compose 语法。
 
   ```powershell
   docker compose config
   ```
 
-  Expected result: Compose renders a complete configuration without schema errors.
+  预期结果：Compose 呈现完整配置，无架构错误。
 
-- [ ] Step 2: Build the development image.
+- [ ] 步骤 2：构建开发镜像。
 
   ```powershell
   docker compose build agentmanager
   ```
 
-  Expected result: the image builds using `Dockerfile.dev` and installs project dependencies successfully.
+  预期结果：使用 `Dockerfile.dev` 构建镜像，并成功安装项目依赖。
 
-- [ ] Step 3: Start the development stack.
+- [ ] 步骤 3：启动开发堆栈。
 
   ```powershell
   docker compose up -d
   docker compose ps
   ```
 
-  Expected result: `agentmanager`, `postgres`, `redis`, `qdrant`, and `minio` are running or healthy.
+  预期结果：`agentmanager`、`postgres`、`redis`、`qdrant` 和 `minio` 正在运行或健康。
 
-- [ ] Step 4: Verify API health from the containerized stack.
+- [ ] 步骤 4：从容器化堆栈验证 API 健康状态。
 
   ```powershell
   python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read().decode())"
   ```
 
-  Expected result: the API returns a healthy response.
+  预期结果：API 返回健康响应。
 
-- [ ] Step 5: Validate production image build.
+- [ ] 步骤 5：验证生产镜像构建。
 
   ```powershell
   docker build -f Dockerfile.prod -t agentmanager:prod .
   ```
 
-  Expected result: production image builds without relying on development-only bind mounts.
+  预期结果：生产镜像构建不依赖仅开发的绑定挂载。
 
-- [ ] Step 6: Shut down local services cleanly.
+- [ ] 步骤 6：干净关闭本地服务。
 
   ```powershell
   docker compose down
   ```
 
-  Expected result: no running project containers remain.
+  预期结果：没有运行的项目容器剩余。
 
 ---
 
-## Task 4: Implement Durable Backend Roadmap
+## 任务 4：实施持久化后端路线图
 
-**Purpose:** Replace prototype-only in-memory state with explicit durable backend interfaces and first production-capable implementations.
+**目的：** 用显式的持久化后端接口和首批面向生产的实现替换仅原型的内存状态。
 
-**Files:**
-- Modify: `agentManager/config/settings.py`
-- Modify: `agentManager/engine/state_manager.py`
-- Modify: `agentManager/engine/checkpoint.py`
-- Modify: `agentManager/engine/event_bus/redis_stream.py`
-- Modify: `agentManager/memory/memory_backend.py`
-- Modify: `agentManager/memory/vector_backend.py`
-- Add: `agentManager/storage/__init__.py`
-- Add: `agentManager/storage/postgres.py`
-- Add: `agentManager/storage/object_store.py`
-- Test: `tests/unit/test_state_manager.py`
-- Test: `tests/unit/test_checkpoint.py`
-- Test: `tests/unit/test_redis_stream_event_bus.py`
-- Test: `tests/unit/memory/test_layered_memory_backends.py`
-- Test: `tests/unit/test_storage_backends.py`
+**文件：**
+- 修改：`agentManager/config/settings.py`
+- 修改：`agentManager/engine/state_manager.py`
+- 修改：`agentManager/engine/checkpoint.py`
+- 修改：`agentManager/engine/event_bus/redis_stream.py`
+- 修改：`agentManager/memory/memory_backend.py`
+- 修改：`agentManager/memory/vector_backend.py`
+- 添加：`agentManager/storage/__init__.py`
+- 添加：`agentManager/storage/postgres.py`
+- 添加：`agentManager/storage/object_store.py`
+- 测试：`tests/unit/test_state_manager.py`
+- 测试：`tests/unit/test_checkpoint.py`
+- 测试：`tests/unit/test_redis_stream_event_bus.py`
+- 测试：`tests/unit/memory/test_layered_memory_backends.py`
+- 测试：`tests/unit/test_storage_backends.py`
 
-- [x] Step 1: Define storage configuration.
+- [x] 步骤 1：定义存储配置。
 
-  Add settings for:
+  添加以下设置：
 
   - `DATABASE_URL`
   - `REDIS_URL`
@@ -247,47 +251,47 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
   - `OBJECT_STORE_SECRET_KEY`
   - `VECTOR_BACKEND`
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_settings.py -v --no-cov
   ```
 
-- [x] Step 2: Add a PostgreSQL state repository interface.
+- [x] 步骤 2：添加 PostgreSQL 状态存储库接口。
 
-  Create `agentManager/storage/postgres.py` with repository methods for workflow state, task runs, and audit records. Keep implementation behind an interface so unit tests can use fakes without requiring PostgreSQL.
+  创建 `agentManager/storage/postgres.py`，包含工作流状态、任务运行和审计记录的存储库方法。将实现放在接口后面，以便单元测试可以使用假实现而不需要 PostgreSQL。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_state_manager.py -v --no-cov
   ```
 
-- [x] Step 3: Add object-store checkpoint abstraction.
+- [x] 步骤 3：添加对象存储检查点抽象。
 
-  Create `agentManager/storage/object_store.py` and connect it to `agentManager/engine/checkpoint.py` without removing local filesystem checkpoint support.
+  创建 `agentManager/storage/object_store.py` 并将其连接到 `agentManager/engine/checkpoint.py`，同时保留本地文件系统检查点支持。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_checkpoint.py -v --no-cov
   ```
 
-- [x] Step 4: Keep Redis Streams as the durable event transport.
+- [x] 步骤 4：保留 Redis Streams 作为持久化事件传输。
 
-  Ensure `agentManager/engine/event_bus/redis_stream.py` handles stream append, consumer read, ack, retry, and workflow filtering behavior covered by tests.
+  确保 `agentManager/engine/event_bus/redis_stream.py` 处理流追加、消费者读取、确认、重试和工作流过滤行为，并有测试覆盖。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_redis_stream_event_bus.py -v --no-cov
   ```
 
-- [x] Step 5: Persist memory through pluggable backends.
+- [x] 步骤 5：通过可插拔后端持久化内存。
 
-  Extend `agentManager/memory/memory_backend.py` and `agentManager/memory/vector_backend.py` so profile/session/engineering memory can use SQLite locally and a durable backend in production.
+  扩展 `agentManager/memory/memory_backend.py` 和 `agentManager/memory/vector_backend.py`，使配置文件/会话/工程内存在本地可以使用 SQLite，在生产环境中可以使用持久化后端。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/memory/ -v --no-cov
@@ -295,59 +299,59 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
 ---
 
-## Task 5: Harden WorkerSandbox
+## 任务 5：强化 WorkerSandbox
 
-**Purpose:** Reduce sandbox escape and cleanup risk before production use.
+**目的：** 在生产使用前降低沙箱逃逸和清理风险。
 
-**Files:**
-- Modify: `agentManager/sandbox/worker_sandbox.py`
-- Modify: `agentManager/sandbox/worker_guard.py`
-- Modify: `agentManager/config/settings.py`
-- Test: `tests/unit/test_worker_sandbox.py`
-- Test: `tests/unit/test_worker_guard.py`
-- Document: `README.md` or `docs/api.md` if user-visible sandbox behavior changes
+**文件：**
+- 修改：`agentManager/sandbox/worker_sandbox.py`
+- 修改：`agentManager/sandbox/worker_guard.py`
+- 修改：`agentManager/config/settings.py`
+- 测试：`tests/unit/test_worker_sandbox.py`
+- 测试：`tests/unit/test_worker_guard.py`
+- 文档：如果用户可见的沙箱行为更改，更新 `README.md` 或 `docs/api.md`
 
-- [x] Step 1: Add isolated per-task workspace behavior.
+- [x] 步骤 1：添加隔离的每个任务工作空间行为。
 
-  Tests should assert each task receives a unique workspace path and cannot write outside it.
+  测试应断言每个任务获得唯一的工作空间路径，并且无法写入外部。
 
-  Verification:
-
-  ```powershell
-  python -m pytest tests/unit/test_worker_sandbox.py -v --no-cov
-  ```
-
-- [x] Step 2: Enforce timeout cleanup.
-
-  Add tests for command timeout, process termination, and workspace cleanup. On Windows, make cleanup retry bounded and observable instead of silently failing.
-
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_worker_sandbox.py -v --no-cov
   ```
 
-- [x] Step 3: Add production container policy settings.
+- [x] 步骤 2：强制执行超时清理。
 
-  Add configuration for:
+  添加命令超时、进程终止和工作空间清理的测试。在 Windows 上，使清理重试有界且可观察，而不是静默失败。
 
-  - allowed images
-  - denied mounts
-  - network mode
-  - CPU and memory limits
-  - read-only root filesystem where supported
+  验证：
 
-  Verification:
+  ```powershell
+  python -m pytest tests/unit/test_worker_sandbox.py -v --no-cov
+  ```
+
+- [x] 步骤 3：添加生产容器策略设置。
+
+  添加以下配置：
+
+  - 允许的镜像
+  - 拒绝的挂载
+  - 网络模式
+  - CPU 和内存限制
+  - 只读根文件系统（如支持）
+
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_settings.py tests/unit/test_worker_sandbox.py -v --no-cov
   ```
 
-- [x] Step 4: Keep WorkerGuard loop detection covered.
+- [x] 步骤 4：保持 WorkerGuard 循环检测覆盖。
 
-  Ensure hardening does not regress action/error/output loop detection.
+  确保强化不会导致动作/错误/输出循环检测退化。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_worker_guard.py -v --no-cov
@@ -355,171 +359,171 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
 ---
 
-## Task 6: Make Completion Reports CI-Backed
+## 任务 6：使完成报告由 CI 支持
 
-**Purpose:** Prevent future static reports from claiming unverified status.
+**目的：** 防止未来的静态报告声明未验证的状态。
 
-**Files:**
-- Modify: `.github/workflows/ci.yml`
-- Add: `scripts/collect_ci_status.py`
-- Add: `docs/reports/verification-template.md`
-- Modify: `docs/reports/README.md`
-- Inspect historical reports under: `docs/reports/`
+**文件：**
+- 修改：`.github/workflows/ci.yml`
+- 添加：`scripts/collect_ci_status.py`
+- 添加：`docs/reports/verification-template.md`
+- 修改：`docs/reports/README.md`
+- 检查：`docs/reports/` 下的历史报告
 
-- [x] Step 1: Define a verification report template.
+- [x] 步骤 1：定义验证报告模板。
 
-  Add `docs/reports/verification-template.md` with required sections:
+  添加 `docs/reports/verification-template.md`，包含必需部分：
 
-  - commit SHA
-  - branch
-  - Python version
-  - command list
-  - pass/fail/skipped status
-  - CI run URL
-  - known blockers
+  - 提交 SHA
+  - 分支
+  - Python 版本
+  - 命令列表
+  - 通过/失败/跳过状态
+  - CI 运行 URL
+  - 已知障碍
 
-- [x] Step 2: Add a CI status collection script.
+- [x] 步骤 2：添加 CI 状态收集脚本。
 
-  Create `scripts/collect_ci_status.py` that reads environment variables such as `GITHUB_SHA`, `GITHUB_REF_NAME`, and `GITHUB_RUN_ID`, then writes a concise Markdown verification summary.
+  创建 `scripts/collect_ci_status.py`，读取环境变量如 `GITHUB_SHA`、`GITHUB_REF_NAME` 和 `GITHUB_RUN_ID`，然后写入简洁的 Markdown 验证摘要。
 
-  Verification:
+  验证：
 
   ```powershell
   python scripts/collect_ci_status.py --output test_tmp/verification-summary.md
   ```
 
-  Expected result: a Markdown file is created with explicit unknown values when not running inside GitHub Actions.
+  预期结果：创建 Markdown 文件，在非 GitHub Actions 环境中运行时使用显式未知值。
 
-- [x] Step 3: Wire the script into CI.
+- [x] 步骤 3：将脚本连接到 CI。
 
-  In `.github/workflows/ci.yml`, run the script after tests and upload the summary as an artifact.
+  在 `.github/workflows/ci.yml` 中，在测试后运行脚本并将摘要作为工件上传。
 
-  Expected result: every CI run produces a machine-generated verification summary.
+  预期结果：每次 CI 运行生成机器生成的验证摘要。
 
-- [x] Step 4: Update report policy.
+- [x] 步骤 4：更新报告策略。
 
-  In `docs/reports/README.md`, state that new completion reports must cite CI run status or explicitly mark local-only verification.
+  在 `docs/reports/README.md` 中，声明新的完成报告必须引用 CI 运行状态或明确标记为本地验证。
 
 ---
 
-## Task 7: Complete End-to-End Execution Loop
+## 任务 7：完成端到端执行循环
 
-**Purpose:** Make workflow creation through execution, recovery, defect repair, and memory write-back observable and tested as one loop.
+**目的：** 使从工作流创建到执行、恢复、缺陷修复和内存写回的整个过程可观察，并作为一个循环进行测试。
 
-**Files:**
-- Modify: `agentManager/runtime/workflow_coordinator.py`
-- Modify: `agentManager/runtime/task_executor.py`
-- Modify: `agentManager/recovery/recovery_engine.py`
-- Modify: `agentManager/defect_repair/repair_pipeline.py`
-- Modify: `agentManager/memory/engineering_memory.py`
-- Modify: `agentManager/engine/event_bus.py`
-- Test: `tests/e2e/test_runtime_workflow_loop.py`
-- Add or modify: `tests/e2e/test_execution_recovery_memory_loop.py`
+**文件：**
+- 修改：`agentManager/runtime/workflow_coordinator.py`
+- 修改：`agentManager/runtime/task_executor.py`
+- 修改：`agentManager/recovery/recovery_engine.py`
+- 修改：`agentManager/defect_repair/repair_pipeline.py`
+- 修改：`agentManager/memory/engineering_memory.py`
+- 修改：`agentManager/engine/event_bus.py`
+- 测试：`tests/e2e/test_runtime_workflow_loop.py`
+- 添加或修改：`tests/e2e/test_execution_recovery_memory_loop.py`
 
-- [ ] Step 1: Write an e2e test for successful workflow execution.
+- [ ] 步骤 1：为成功的工作流执行编写端到端测试。
 
-  The test should create a small DAG, dispatch ready tasks, execute them through `TaskExecutor`, publish events, update state, checkpoint outputs, and write a memory record.
+  测试应创建小型 DAG、分发就绪任务、通过 `TaskExecutor` 执行它们、发布事件、更新状态、检查点输出，并写入内存记录。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/e2e/test_runtime_workflow_loop.py -v --no-cov
   ```
 
-- [ ] Step 2: Write an e2e test for recovery path execution.
+- [ ] 步骤 2：为恢复路径执行编写端到端测试。
 
-  Add `tests/e2e/test_execution_recovery_memory_loop.py` covering a failing task that triggers recovery, records the recovery event, and writes a durable engineering memory entry.
+  添加 `tests/e2e/test_execution_recovery_memory_loop.py`，覆盖失败任务触发恢复、记录恢复事件并写入持久化工程内存条目的场景。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/e2e/test_execution_recovery_memory_loop.py -v --no-cov
   ```
 
-- [ ] Step 3: Connect defect repair as an optional recovery strategy.
+- [ ] 步骤 3：将缺陷修复连接为可选的恢复策略。
 
-  Ensure `RecoveryEngine` can call `repair_pipeline` only when classification indicates a repairable defect and the workflow policy allows it.
+  确保 `RecoveryEngine` 仅在分类表明可修复缺陷且工作流策略允许时调用 `repair_pipeline`。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_recovery_engine.py tests/test_defect_repair.py -v --no-cov
   ```
 
-- [ ] Step 4: Verify the combined runtime path.
+- [ ] 步骤 4：验证组合的运行时路径。
 
   ```powershell
   python -m pytest tests/e2e/ -v --no-cov
   ```
 
-  Expected result: successful and recovery loops both pass without requiring external services.
+  预期结果：成功循环和恢复循环都通过，无需外部服务。
 
 ---
 
-## Task 8: Add Production Security and Observability
+## 任务 8：添加生产安全和可观测性
 
-**Purpose:** Add the minimum production controls needed to operate and diagnose the system safely.
+**目的：** 添加安全操作和诊断系统所需的最低生产控制。
 
-**Files:**
-- Modify: `agentManager/config/settings.py`
-- Modify: `agentManager/api.py`
-- Modify: `agentManager/runtime/workflow_coordinator.py`
-- Modify: `agentManager/engine/event_bus.py`
-- Add: `agentManager/observability/__init__.py`
-- Add: `agentManager/observability/logging.py`
-- Add: `agentManager/observability/tracing.py`
-- Add: `agentManager/observability/audit.py`
-- Modify: `monitoring/prometheus.yml`
-- Modify: `.env.prod.example`
-- Modify: `README.md`
-- Test: `tests/unit/test_settings.py`
-- Add: `tests/unit/test_observability.py`
+**文件：**
+- 修改：`agentManager/config/settings.py`
+- 修改：`agentManager/api.py`
+- 修改：`agentManager/runtime/workflow_coordinator.py`
+- 修改：`agentManager/engine/event_bus.py`
+- 添加：`agentManager/observability/__init__.py`
+- 添加：`agentManager/observability/logging.py`
+- 添加：`agentManager/observability/tracing.py`
+- 添加：`agentManager/observability/audit.py`
+- 修改：`monitoring/prometheus.yml`
+- 修改：`.env.prod.example`
+- 修改：`README.md`
+- 测试：`tests/unit/test_settings.py`
+- 添加：`tests/unit/test_observability.py`
 
-- [ ] Step 1: Add structured logging configuration.
+- [ ] 步骤 1：添加结构化日志配置。
 
-  Add settings for log level, JSON log output, and request/workflow correlation IDs.
+  添加日志级别、JSON 日志输出和请求/工作流关联 ID 的设置。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_settings.py -v --no-cov
   ```
 
-- [ ] Step 2: Add audit event helpers.
+- [ ] 步骤 2：添加审计事件助手。
 
-  Create `agentManager/observability/audit.py` with helpers for security-sensitive events: workflow creation, task execution, sandbox denial, recovery escalation, and configuration validation failure.
+  创建 `agentManager/observability/audit.py`，包含安全敏感事件的助手：工作流创建、任务执行、沙箱拒绝、恢复升级和配置验证失败。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_observability.py -v --no-cov
   ```
 
-- [ ] Step 3: Add OpenTelemetry trace hooks behind configuration.
+- [ ] 步骤 3：在配置后添加 OpenTelemetry 追踪钩子。
 
-  Create `agentManager/observability/tracing.py` and keep tracing disabled by default for local development. When enabled, trace workflow coordination, task execution, recovery, checkpoint, and memory write operations.
+  创建 `agentManager/observability/tracing.py`，默认保持追踪禁用以支持本地开发。启用时，追踪工作流协调、任务执行、恢复、检查点和内存写入操作。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_observability.py tests/unit/test_task_executor.py tests/unit/test_recovery_engine.py -v --no-cov
   ```
 
-- [ ] Step 4: Review Prometheus configuration.
+- [ ] 步骤 4：审查 Prometheus 配置。
 
-  Update `monitoring/prometheus.yml` only if scrape targets or metrics paths changed.
+  仅在抓取目标或指标路径更改时更新 `monitoring/prometheus.yml`。
 
-  Verification:
+  验证：
 
   ```powershell
   python -m pytest tests/unit/test_api.py -v --no-cov
   ```
 
-- [ ] Step 5: Update production environment example.
+- [ ] 步骤 5：更新生产环境示例。
 
-  Add required security and observability variables to `.env.prod.example` without putting real secrets in the file.
+  向 `.env.prod.example` 添加必需的安全和可观测性变量，但不在文件中放入真实密钥。
 
-  Verification:
+  验证：
 
   ```powershell
   git diff --check
@@ -527,9 +531,9 @@ This plan decomposes the first 8 unfinished items from `TODO.md`:
 
 ---
 
-## Final Verification Matrix
+## 最终验证矩阵
 
-Run these commands before marking the full plan complete:
+在标记完整计划完成前运行这些命令：
 
 ```powershell
 python -m pytest tests/unit/test_api.py -v --no-cov
@@ -543,18 +547,18 @@ docker compose build agentmanager
 docker build -f Dockerfile.prod -t agentmanager:prod .
 ```
 
-Expected final state:
+预期最终状态：
 
-- API tests pass in Python 3.11/3.12.
-- Full unit and e2e suites are either passing or have explicitly documented external-service skips.
-- Docker Compose and production image build are validated.
-- Durable backend interfaces exist with unit coverage.
-- Sandbox hardening has direct tests.
-- New completion reports are tied to CI evidence.
-- Runtime execution loop covers success and recovery paths.
-- Security and observability settings are documented and tested.
+- API 测试在 Python 3.11/3.12 中通过。
+- 完整的单元和端到端套件要么通过，要么有明确记录的外部服务跳过。
+- Docker Compose 和生产镜像构建已验证。
+- 持久化后端接口存在并带有单元覆盖。
+- 沙箱强化有直接测试。
+- 新的完成报告与 CI 证据关联。
+- 运行时执行循环覆盖成功和恢复路径。
+- 安全和可观测性设置已文档化并测试。
 
-## Suggested Commit Sequence
+## 建议的提交顺序
 
 1. `test: restore supported api and full-suite verification`
 2. `test: stabilize full e2e validation`
