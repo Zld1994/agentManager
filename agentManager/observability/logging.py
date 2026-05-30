@@ -1,80 +1,170 @@
-"""Structured logging and correlation ID helpers."""
+"""Structured logging with JSON output and request/workflow correlation IDs.
+
+Uses Python stdlib logging with a custom JSON formatter.
+Correlation IDs are stored in contextvars for async-safe propagation.
+"""
 
 from __future__ import annotations
 
-import contextvars
 import json
 import logging
+import os
+import sys
+import uuid
+from contextvars import ContextVar
 from datetime import datetime, timezone
-from typing import Any
-
-_correlation_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "agentmanager_correlation_id",
-    default=None,
-)
+from typing import Any, Optional
 
 
-def set_correlation_id(correlation_id: str | None) -> None:
-    """Set the correlation ID for the current context."""
-    _correlation_id.set(correlation_id)
+# ── Correlation context variables ────────────────────────────────────────────
+
+_request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
+_workflow_id_var: ContextVar[Optional[str]] = ContextVar("workflow_id", default=None)
 
 
-def get_correlation_id() -> str | None:
-    """Return the correlation ID for the current context."""
-    return _correlation_id.get()
+def get_request_id() -> Optional[str]:
+    return _request_id_var.get()
 
 
-def clear_correlation_id() -> None:
-    """Clear the correlation ID for the current context."""
-    _correlation_id.set(None)
+def get_workflow_id() -> Optional[str]:
+    return _workflow_id_var.get()
 
 
-class JsonLogFormatter(logging.Formatter):
-    """Format log records as single-line JSON."""
+def set_request_context(
+    request_id: Optional[str] = None,
+    workflow_id: Optional[str] = None,
+) -> None:
+    """Set correlation IDs for the current async context."""
+    if request_id is not None:
+        _request_id_var.set(request_id)
+    if workflow_id is not None:
+        _workflow_id_var.set(workflow_id)
+
+
+def clear_request_context() -> None:
+    _request_id_var.set(None)
+    _workflow_id_var.set(None)
+
+
+def new_request_id() -> str:
+    return uuid.uuid4().hex[:16]
+
+
+# ── JSON log record factory ──────────────────────────────────────────────────
+
+_original_factory = logging.getLogRecordFactory()
+
+
+def _correlated_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
+    record = _original_factory(*args, **kwargs)
+    record.request_id = _request_id_var.get() or ""  # type: ignore[attr-defined]
+    record.workflow_id = _workflow_id_var.get() or ""  # type: ignore[attr-defined]
+    return record
+
+
+# ── JSON Formatter ───────────────────────────────────────────────────────────
+
+class _JSONEncoder(json.JSONEncoder):
+    def default(self, o: Any) -> Any:
+        if isinstance(o, datetime):
+            return o.isoformat()
+        if isinstance(o, BaseException):
+            return repr(o)
+        return super().default(o)
+
+
+class JSONFormatter(logging.Formatter):
+    """Emit each log record as a single JSON line."""
 
     def format(self, record: logging.LogRecord) -> str:
-        """Format a log record with stable production fields."""
         payload: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(timezone.utc).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
-            "correlation_id": get_correlation_id(),
+            "msg": record.getMessage(),
         }
-        if record.exc_info:
+        # Correlation
+        req_id = getattr(record, "request_id", "")
+        wf_id = getattr(record, "workflow_id", "")
+        if req_id:
+            payload["request_id"] = req_id
+        if wf_id:
+            payload["workflow_id"] = wf_id
+
+        # Source location
+        payload["module"] = record.module
+        payload["func"] = record.funcName
+        payload["line"] = record.lineno
+
+        # Exception info
+        if record.exc_info and record.exc_info[0] is not None:
             payload["exception"] = self.formatException(record.exc_info)
-        audit_event = getattr(record, "audit_event", None)
-        if audit_event is not None:
-            payload["audit_event"] = audit_event
-        return json.dumps(payload, sort_keys=True)
+
+        # Extra fields (skip internal LogRecord attrs)
+        _skip = {
+            "name", "msg", "args", "created", "relativeCreated",
+            "exc_info", "exc_text", "stack_info", "lineno", "funcName",
+            "filename", "module", "pathname", "thread", "threadName",
+            "process", "processName", "levelname", "levelno", "message",
+            "msecs", "taskName", "request_id", "workflow_id",
+        }
+        for key, val in record.__dict__.items():
+            if key not in _skip and not key.startswith("_"):
+                payload[key] = val
+
+        return json.dumps(payload, cls=_JSONEncoder, ensure_ascii=False)
 
 
-class CorrelationIdFilter(logging.Filter):
-    """Inject correlation_id into text log records."""
+# ── StructuredLogger wrapper ────────────────────────────────────────────────
 
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.correlation_id = get_correlation_id()
-        return True
+class StructuredLogger:
+    """Thin convenience wrapper around a stdlib logger."""
+
+    def __init__(self, name: str) -> None:
+        self._logger = logging.getLogger(name)
+
+    def bind(self, **extra: Any) -> logging.LoggerAdapter:
+        return logging.LoggerAdapter(self._logger, extra)
+
+    @property
+    def native(self) -> logging.Logger:
+        return self._logger
 
 
-def configure_logging(settings: dict[str, Any]) -> None:
-    """Configure root logging for text or JSON output."""
-    log_level = getattr(logging, settings.get("log_level", "INFO"), logging.INFO)
-    log_format = settings.get("log_format", "text")
+# ── Setup entry point ────────────────────────────────────────────────────────
 
-    handler = logging.StreamHandler()
-    if log_format == "json":
-        handler.setFormatter(JsonLogFormatter())
+def setup_logging(
+    level: Optional[str] = None,
+    json_output: Optional[bool] = None,
+) -> None:
+    """Configure root logger with optional JSON formatter.
+
+    Reads defaults from environment when parameters are not given:
+      - LOG_LEVEL (default INFO)
+      - LOG_JSON  (default True)
+    """
+    if level is None:
+        level = os.getenv("LOG_LEVEL", "INFO").upper()
+    if json_output is None:
+        log_json_env = os.getenv("LOG_JSON", "true").lower()
+        json_output = log_json_env in {"1", "true", "yes", "on"}
+
+    root = logging.getLogger()
+    root.setLevel(getattr(logging, level, logging.INFO))
+
+    # Install correlation-aware record factory (idempotent)
+    logging.setLogRecordFactory(_correlated_factory)
+
+    handler = logging.StreamHandler(sys.stdout)
+    if json_output:
+        handler.setFormatter(JSONFormatter())
     else:
         handler.setFormatter(
             logging.Formatter(
-                "%(asctime)s %(levelname)s %(name)s "
-                "[correlation_id=%(correlation_id)s] %(message)s"
+                "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
             )
         )
-    handler.addFilter(CorrelationIdFilter())
 
-    root_logger = logging.getLogger()
-    root_logger.handlers.clear()
-    root_logger.addHandler(handler)
-    root_logger.setLevel(log_level)
+    # Replace existing handlers to avoid duplicate output
+    root.handlers.clear()
+    root.addHandler(handler)

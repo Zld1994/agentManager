@@ -483,6 +483,28 @@ This is a prototype project. Contributions are welcome for:
 
 ---
 
+## 🔭 Observability
+
+The `agentManager.observability` module provides production-ready monitoring:
+
+- **Structured Logging** — JSON-formatted logs with request/workflow correlation IDs (`X-Request-ID` header propagated automatically)
+- **OpenTelemetry Tracing** — Opt-in distributed tracing (set `OTEL_ENABLED=true`); zero overhead when disabled
+- **Audit Events** — Security-critical actions (workflow creation, task execution, sandbox denials, recovery escalation, config validation failures) logged under the `audit` namespace
+- **Prometheus Metrics** — Task counters, duration histograms, error/repair counters at `/metrics`
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `LOG_LEVEL` | `INFO` | Python log level |
+| `LOG_JSON` | `true` | JSON output (false = human-readable) |
+| `OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
+| `OTEL_SERVICE_NAME` | `agentManager` | OTEL service name |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC endpoint |
+| `AUDIT_ENABLED` | `true` | Emit audit log events |
+
+---
+
 ## 📄 License
 
 MIT License - See LICENSE file for details

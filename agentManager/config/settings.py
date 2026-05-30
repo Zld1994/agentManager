@@ -9,8 +9,6 @@ import os
 from typing import Any
 from typing import Set
 
-from agentManager.observability.audit import audit_config_validation_failed
-
 logger = logging.getLogger(__name__)
 
 # Common weak passwords to detect
@@ -54,7 +52,6 @@ def validate_settings(settings: dict[str, str] | None = None) -> None:
     for key, value in settings.items():
         if value and value.lower() in WEAK_PASSWORDS:
             weak_found.add(key)
-            audit_config_validation_failed(key, "weak password")
             logger.error(f"Weak password detected for {key}")
 
     if weak_found:
@@ -121,22 +118,12 @@ def get_sandbox_policy_settings() -> dict[str, Any]:
 
 
 def get_observability_settings() -> dict[str, Any]:
-    """Get logging, audit, and tracing settings from environment variables."""
+    """Get observability configuration from environment variables."""
     return {
         "log_level": os.getenv("LOG_LEVEL", "INFO").upper(),
-        "log_format": os.getenv("LOG_FORMAT", "text").lower(),
-        "request_correlation_header": os.getenv(
-            "REQUEST_CORRELATION_HEADER", "X-Request-ID"
-        ),
-        "workflow_correlation_metadata_key": os.getenv(
-            "WORKFLOW_CORRELATION_METADATA_KEY", "correlation_id"
-        ),
-        "audit_logger_name": os.getenv("AUDIT_LOGGER_NAME", "agentManager.audit"),
-        "otel_tracing_enabled": _parse_bool_setting(
-            os.getenv("OTEL_TRACING_ENABLED", "false")
-        ),
+        "log_json": _parse_bool_setting(os.getenv("LOG_JSON", "true")),
+        "otel_enabled": _parse_bool_setting(os.getenv("OTEL_ENABLED", "false")),
         "otel_service_name": os.getenv("OTEL_SERVICE_NAME", "agentManager"),
-        "otel_exporter_otlp_endpoint": os.getenv(
-            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
-        ),
+        "otel_endpoint": os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
+        "audit_enabled": _parse_bool_setting(os.getenv("AUDIT_ENABLED", "true")),
     }

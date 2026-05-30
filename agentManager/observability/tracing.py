@@ -1,52 +1,144 @@
-"""Optional tracing hooks with no-op local defaults."""
+"""OpenTelemetry tracing integration (opt-in, disabled by default).
+
+When OTEL_ENABLED=true, initialises an OTLP exporter and provides
+context-manager / decorator helpers for creating spans.
+When disabled, all helpers are no-ops so callers don't need guards.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+import os
+import logging
+from contextlib import contextmanager
+from typing import Any, Generator, Optional
 
-_tracing_enabled = False
+logger = logging.getLogger(__name__)
 
-
-@dataclass
-class NoopSpan:
-    """In-memory span shape used when OpenTelemetry is disabled."""
-
-    name: str
-    attributes: dict[str, Any] = field(default_factory=dict)
-    error: str | None = None
-
-    def set_attribute(self, key: str, value: Any) -> None:
-        """Set a span attribute."""
-        self.attributes[key] = value
+_tracer: Any = None  # Will be an opentelemetry Tracer or None
 
 
-class TraceOperation:
-    """Context manager for one traced operation."""
+def setup_tracing(
+    enabled: Optional[bool] = None,
+    service_name: Optional[str] = None,
+    endpoint: Optional[str] = None,
+) -> bool:
+    """Initialise OpenTelemetry if enabled.
 
-    def __init__(self, name: str, **attributes: Any) -> None:
-        self.span = NoopSpan(name=name, attributes=dict(attributes))
+    Returns True when tracing is active.
+    Reads defaults from environment:
+      - OTEL_ENABLED       (default false)
+      - OTEL_SERVICE_NAME  (default "agentManager")
+      - OTEL_EXPORTER_OTLP_ENDPOINT (default "http://localhost:4317")
+    """
+    global _tracer
 
-    def __enter__(self) -> NoopSpan:
-        return self.span
+    if enabled is None:
+        enabled = os.getenv("OTEL_ENABLED", "false").lower() in {
+            "1", "true", "yes", "on"
+        }
+    if not enabled:
+        logger.debug("OpenTelemetry tracing is disabled")
+        return False
 
-    def __exit__(self, exc_type, exc, traceback) -> bool:
-        if exc is not None:
-            self.span.error = str(exc)
+    service_name = service_name or os.getenv("OTEL_SERVICE_NAME", "agentManager")
+    endpoint = endpoint or os.getenv(
+        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"
+    )
+
+    try:
+        from opentelemetry import trace
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.sdk.resources import Resource
+
+        resource = Resource.create({"service.name": service_name})
+        provider = TracerProvider(resource=resource)
+        exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        trace.set_tracer_provider(provider)
+        _tracer = trace.get_tracer(service_name)
+        logger.info("OpenTelemetry tracing enabled: service=%s endpoint=%s", service_name, endpoint)
+        return True
+    except ImportError:
+        logger.warning(
+            "OpenTelemetry packages not installed; tracing disabled. "
+            "Install with: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp"
+        )
+        return False
+    except Exception:
+        logger.exception("Failed to initialise OpenTelemetry tracing")
         return False
 
 
-def configure_tracing(settings: dict[str, Any]) -> None:
-    """Configure tracing. OpenTelemetry export is opt-in."""
-    global _tracing_enabled
-    _tracing_enabled = bool(settings.get("otel_tracing_enabled", False))
+# ── No-op span for when tracing is off ──────────────────────────────────────
+
+class _NoOpSpan:
+    """Minimal no-op span that supports context-manager and set_attribute."""
+
+    def set_attribute(self, key: str, value: Any) -> None:
+        pass
+
+    def set_status(self, status: Any) -> None:
+        pass
+
+    def record_exception(self, exc: BaseException) -> None:
+        pass
+
+    def __enter__(self) -> "_NoOpSpan":
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        pass
 
 
-def is_tracing_enabled() -> bool:
-    """Return whether tracing is enabled."""
-    return _tracing_enabled
+@contextmanager
+def create_span(name: str, attributes: Optional[dict[str, Any]] = None) -> Generator[Any, None, None]:
+    """Create a tracing span (no-op when tracing is disabled)."""
+    if _tracer is None:
+        yield _NoOpSpan()
+        return
+
+    with _tracer.start_as_current_span(name) as span:
+        if attributes:
+            for k, v in attributes.items():
+                span.set_attribute(k, v)
+        try:
+            yield span
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status({"error": str(exc)})
+            raise
 
 
-def trace_operation(name: str, **attributes: Any) -> TraceOperation:
-    """Create a trace operation context manager."""
-    return TraceOperation(name, **attributes)
+@contextmanager
+def trace_workflow(workflow_id: str) -> Generator[Any, None, None]:
+    """Wrap an entire workflow run in a top-level span."""
+    with create_span(
+        "workflow.run",
+        {"workflow.id": workflow_id},
+    ) as span:
+        yield span
+
+
+@contextmanager
+def trace_task(task_id: str, task_type: str = "unknown") -> Generator[Any, None, None]:
+    """Wrap a single task execution in a span."""
+    with create_span(
+        "task.execute",
+        {"task.id": task_id, "task.type": task_type},
+    ) as span:
+        yield span
+
+
+def get_current_span() -> Any:
+    """Return the currently active span, or a no-op span."""
+    if _tracer is None:
+        return _NoOpSpan()
+    try:
+        from opentelemetry import trace
+        return trace.get_current_span()
+    except ImportError:
+        return _NoOpSpan()
