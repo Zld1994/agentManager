@@ -118,12 +118,38 @@ def get_sandbox_policy_settings() -> dict[str, Any]:
 
 
 def get_observability_settings() -> dict[str, Any]:
-    """Get observability configuration from environment variables."""
+    """Get observability configuration from environment variables.
+
+    Keys match the test expectations:
+      - log_format: "text" or "json"
+      - request_correlation_header: header name for request IDs
+      - workflow_correlation_metadata_key: key for workflow correlation in events
+      - audit_logger_name: logger name for audit events
+      - otel_tracing_enabled: bool
+      - otel_service_name: str
+      - otel_exporter_otlp_endpoint: str
+    """
+    # LOG_FORMAT directly overrides (text/json), otherwise derive from LOG_JSON
+    log_format = os.getenv("LOG_FORMAT", "").lower()
+    if log_format not in {"text", "json"}:
+        log_format = "json" if _parse_bool_setting(os.getenv("LOG_JSON", "false")) else "text"
     return {
         "log_level": os.getenv("LOG_LEVEL", "INFO").upper(),
-        "log_json": _parse_bool_setting(os.getenv("LOG_JSON", "true")),
-        "otel_enabled": _parse_bool_setting(os.getenv("OTEL_ENABLED", "false")),
+        "log_format": log_format,
+        "request_correlation_header": os.getenv(
+            "REQUEST_CORRELATION_HEADER", "X-Request-ID"
+        ),
+        "workflow_correlation_metadata_key": os.getenv(
+            "WORKFLOW_CORRELATION_METADATA_KEY", "correlation_id"
+        ),
+        "audit_logger_name": os.getenv(
+            "AUDIT_LOGGER_NAME", "agentManager.audit"
+        ),
+        "otel_tracing_enabled": _parse_bool_setting(
+            os.getenv("OTEL_TRACING_ENABLED", "false")
+        ),
         "otel_service_name": os.getenv("OTEL_SERVICE_NAME", "agentManager"),
-        "otel_endpoint": os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"),
-        "audit_enabled": _parse_bool_setting(os.getenv("AUDIT_ENABLED", "true")),
+        "otel_exporter_otlp_endpoint": os.getenv(
+            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
+        ),
     }

@@ -26,6 +26,18 @@ def get_request_id() -> Optional[str]:
     return _request_id_var.get()
 
 
+# Compatibility aliases
+get_correlation_id = get_request_id
+
+
+def set_correlation_id(value: Optional[str]) -> None:
+    set_request_context(request_id=value)
+
+
+def clear_correlation_id() -> None:
+    clear_request_context()
+
+
 def get_workflow_id() -> Optional[str]:
     return _workflow_id_var.get()
 

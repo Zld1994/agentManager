@@ -123,3 +123,33 @@ def log_config_validation_failed(
         outcome="failure",
         detail={"reason": reason, **extra},
     ))
+
+
+# ── Compatibility aliases (matching caller signatures in existing modules) ──
+
+def audit_recovery_escalated(
+    workflow_id: str,
+    task_id: str,
+    error_msg: str,
+) -> None:
+    """Alias for log_recovery_upgrade with caller-compatible signature."""
+    record_audit_event(AuditEvent(
+        event_type=AuditEventType.RECOVERY_UPGRADE,
+        resource=task_id,
+        detail={
+            "workflow_id": workflow_id,
+            "error_msg": error_msg,
+        },
+    ))
+
+
+def audit_task_execution(
+    workflow_id: str,
+    task_id: str,
+) -> None:
+    """Alias for log_task_executed with caller-compatible signature."""
+    record_audit_event(AuditEvent(
+        event_type=AuditEventType.TASK_EXECUTED,
+        resource=task_id,
+        detail={"workflow_id": workflow_id},
+    ))

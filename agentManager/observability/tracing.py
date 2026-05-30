@@ -33,7 +33,7 @@ def setup_tracing(
     global _tracer
 
     if enabled is None:
-        enabled = os.getenv("OTEL_ENABLED", "false").lower() in {
+        enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() in {
             "1", "true", "yes", "on"
         }
     if not enabled:
@@ -141,4 +141,16 @@ def get_current_span() -> Any:
         from opentelemetry import trace
         return trace.get_current_span()
     except ImportError:
+        return _NoOpSpan()
+
+
+# Compatibility alias: takes **kwargs directly instead of a dict
+def trace_operation(name: str, **attributes: Any) -> Any:
+    """Compatibility wrapper: create a span from name + keyword arguments."""
+    if _tracer is None:
+        return _NoOpSpan()
+
+    try:
+        return _tracer.start_as_current_span(name, attributes=attributes)
+    except Exception:
         return _NoOpSpan()

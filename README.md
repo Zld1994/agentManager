@@ -498,7 +498,7 @@ The `agentManager.observability` module provides production-ready monitoring:
 |---|---|---|
 | `LOG_LEVEL` | `INFO` | Python log level |
 | `LOG_JSON` | `true` | JSON output (false = human-readable) |
-| `OTEL_ENABLED` | `false` | Enable OpenTelemetry tracing |
+| `OTEL_TRACING_ENABLED` | `false` | Enable OpenTelemetry tracing |
 | `OTEL_SERVICE_NAME` | `agentManager` | OTEL service name |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | OTLP gRPC endpoint |
 | `AUDIT_ENABLED` | `true` | Emit audit log events |
