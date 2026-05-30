@@ -30,7 +30,7 @@ from agentManager.observability.tracing import setup_tracing
 setup_logging()
 logger = logging.getLogger(__name__)
 
-# Initialise tracing (no-op unless OTEL_ENABLED=true)
+# Initialise tracing (no-op unless OTEL_TRACING_ENABLED=true)
 setup_tracing()
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
 

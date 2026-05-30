@@ -132,7 +132,7 @@ def get_observability_settings() -> dict[str, Any]:
     # LOG_FORMAT directly overrides (text/json), otherwise derive from LOG_JSON
     log_format = os.getenv("LOG_FORMAT", "").lower()
     if log_format not in {"text", "json"}:
-        log_format = "json" if _parse_bool_setting(os.getenv("LOG_JSON", "false")) else "text"
+        log_format = "json" if _parse_bool_setting(os.getenv("LOG_JSON", "true")) else "text"
     return {
         "log_level": os.getenv("LOG_LEVEL", "INFO").upper(),
         "log_format": log_format,

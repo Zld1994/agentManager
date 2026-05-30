@@ -1,6 +1,6 @@
 """OpenTelemetry tracing integration (opt-in, disabled by default).
 
-When OTEL_ENABLED=true, initialises an OTLP exporter and provides
+When OTEL_TRACING_ENABLED=true, initialises an OTLP exporter and provides
 context-manager / decorator helpers for creating spans.
 When disabled, all helpers are no-ops so callers don't need guards.
 """
@@ -26,7 +26,7 @@ def setup_tracing(
 
     Returns True when tracing is active.
     Reads defaults from environment:
-      - OTEL_ENABLED       (default false)
+      - OTEL_TRACING_ENABLED (default false)
       - OTEL_SERVICE_NAME  (default "agentManager")
       - OTEL_EXPORTER_OTLP_ENDPOINT (default "http://localhost:4317")
     """
@@ -76,7 +76,7 @@ def setup_tracing(
 # ── No-op span for when tracing is off ──────────────────────────────────────
 
 class _NoOpSpan:
-    """Minimal no-op span that supports context-manager and set_attribute."""
+    """Minimal no-op span that supports context-manager, set_attribute, and end."""
 
     def set_attribute(self, key: str, value: Any) -> None:
         pass
@@ -85,6 +85,9 @@ class _NoOpSpan:
         pass
 
     def record_exception(self, exc: BaseException) -> None:
+        pass
+
+    def end(self) -> None:
         pass
 
     def __enter__(self) -> "_NoOpSpan":
@@ -109,7 +112,12 @@ def create_span(name: str, attributes: Optional[dict[str, Any]] = None) -> Gener
             yield span
         except Exception as exc:
             span.record_exception(exc)
-            span.set_status({"error": str(exc)})
+            try:
+                from opentelemetry.trace import Status, StatusCode
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+            except ImportError:
+                # OpenTelemetry not installed — span is a no-op or minimal stub
+                pass
             raise
 
 
@@ -144,13 +152,15 @@ def get_current_span() -> Any:
         return _NoOpSpan()
 
 
-# Compatibility alias: takes **kwargs directly instead of a dict
-def trace_operation(name: str, **attributes: Any) -> Any:
-    """Compatibility wrapper: create a span from name + keyword arguments."""
-    if _tracer is None:
-        return _NoOpSpan()
+# Compatibility alias: context-manager wrapper for create_span
+@contextmanager
+def trace_operation(name: str, **attributes: Any) -> Generator[Any, None, None]:
+    """Compatibility wrapper: create a span from name + keyword arguments.
 
-    try:
-        return _tracer.start_as_current_span(name, attributes=attributes)
-    except Exception:
-        return _NoOpSpan()
+    Use as a context manager::
+
+        with trace_operation("my.op", key="val") as span:
+            ...
+    """
+    with create_span(name, attributes=attributes if attributes else None) as span:
+        yield span

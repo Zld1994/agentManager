@@ -31,7 +31,16 @@ get_correlation_id = get_request_id
 
 
 def set_correlation_id(value: Optional[str]) -> None:
-    set_request_context(request_id=value)
+    """Set the correlation (request) ID.
+
+    Passing None explicitly clears the request ID, equivalent to calling
+    clear_correlation_id(). This differs from set_request_context() where
+    None means "don't change this value".
+    """
+    if value is None:
+        _request_id_var.set(None)
+    else:
+        _request_id_var.set(value)
 
 
 def clear_correlation_id() -> None:
@@ -59,7 +68,7 @@ def clear_request_context() -> None:
 
 
 def new_request_id() -> str:
-    return uuid.uuid4().hex[:16]
+    return uuid.uuid4().hex
 
 
 # ── JSON log record factory ──────────────────────────────────────────────────
@@ -177,6 +186,11 @@ def setup_logging(
             )
         )
 
-    # Replace existing handlers to avoid duplicate output
-    root.handlers.clear()
+    # Replace only our own previously-added handler to avoid duplicate output,
+    # while preserving handlers from other libraries (Sentry, RotatingFileHandler, etc.)
+    our_handler = getattr(root, "_agentmanager_handler", None)
+    if our_handler is not None:
+        root.removeHandler(our_handler)
+
     root.addHandler(handler)
+    root._agentmanager_handler = handler  # type: ignore[attr-defined]

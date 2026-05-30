@@ -219,7 +219,7 @@ class TestObservabilitySettings:
             settings = get_observability_settings()
 
         assert settings["log_level"] == "INFO"
-        assert settings["log_format"] == "text"
+        assert settings["log_format"] == "json"
         assert settings["request_correlation_header"] == "X-Request-ID"
         assert settings["workflow_correlation_metadata_key"] == "correlation_id"
         assert settings["audit_logger_name"] == "agentManager.audit"

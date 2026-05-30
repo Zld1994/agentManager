@@ -57,7 +57,7 @@ class TestCorrelationContext:
 
     def test_new_request_id_is_hex(self):
         rid = new_request_id()
-        assert len(rid) == 16
+        assert len(rid) == 32
         int(rid, 16)  # Should not raise
 
 
@@ -168,7 +168,7 @@ class TestTracing:
 
     def test_missing_packages_returns_false(self):
         # Even with enabled=True, missing packages should return False
-        with patch.dict("os.environ", {"OTEL_ENABLED": "true"}):
+        with patch.dict("os.environ", {"OTEL_TRACING_ENABLED": "true"}):
             result = setup_tracing(enabled=True)
             # Will be False because opentelemetry is not installed
             assert result is False
@@ -197,11 +197,11 @@ class TestAuditEvent:
 
 class TestAuditHelpers:
     def test_log_workflow_created(self, caplog):
-        with caplog.at_level(logging.INFO, logger="audit"):
+        with caplog.at_level(logging.INFO, logger="agentManager.audit"):
             log_workflow_created("wf-1", actor="admin", task_count=5)
         assert len(caplog.records) == 1
         rec = caplog.records[0]
-        assert rec.name == "audit"
+        assert rec.name == "agentManager.audit"
         audit_data = rec.extra.get("audit", {}) if hasattr(rec, "extra") else {}
         # Extra is stored in record.__dict__
         audit_data = getattr(rec, "audit", None)
@@ -210,27 +210,27 @@ class TestAuditHelpers:
             assert "AUDIT" in rec.getMessage()
 
     def test_log_task_executed(self, caplog):
-        with caplog.at_level(logging.INFO, logger="audit"):
+        with caplog.at_level(logging.INFO, logger="agentManager.audit"):
             log_task_executed("task-1", task_type="compute", duration_ms=150.0)
         assert len(caplog.records) == 1
 
     def test_log_sandbox_denied(self, caplog):
-        with caplog.at_level(logging.INFO, logger="audit"):
+        with caplog.at_level(logging.INFO, logger="agentManager.audit"):
             log_sandbox_denied("task-2", reason="mount_blocked", policy="deny_docker_sock")
         assert len(caplog.records) == 1
 
     def test_log_recovery_upgrade(self, caplog):
-        with caplog.at_level(logging.INFO, logger="audit"):
+        with caplog.at_level(logging.INFO, logger="agentManager.audit"):
             log_recovery_upgrade("task-3", from_strategy="retry", to_strategy="escalate")
         assert len(caplog.records) == 1
 
     def test_log_config_validation_failed(self, caplog):
-        with caplog.at_level(logging.INFO, logger="audit"):
+        with caplog.at_level(logging.INFO, logger="agentManager.audit"):
             log_config_validation_failed("POSTGRES_PASSWORD", reason="weak_password")
         assert len(caplog.records) == 1
 
     def test_record_audit_event_direct(self, caplog):
-        with caplog.at_level(logging.INFO, logger="audit"):
+        with caplog.at_level(logging.INFO, logger="agentManager.audit"):
             record_audit_event(AuditEvent(
                 event_type=AuditEventType.CUSTOM,
                 detail={"custom_key": "custom_value"},

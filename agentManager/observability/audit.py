@@ -1,7 +1,7 @@
 """Audit event helpers for security-critical actions.
 
 All audit events are emitted as structured JSON log records at INFO level
-under the ``audit`` logger namespace.  They can be forwarded to any log
+under the ``agentManager.audit`` logger namespace.  They can be forwarded to any log
 aggregator (Loki, ELK, CloudWatch) without additional infrastructure.
 """
 
@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Any, Dict, Optional
 
 
-logger = logging.getLogger("audit")
+logger = logging.getLogger("agentManager.audit")
 
 
 class AuditEventType(str, Enum):
