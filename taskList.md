@@ -313,9 +313,13 @@
 
   在 `setup_tracing()` 中添加 `OTEL_TRACING_SAMPLE_RATE` 环境变量支持（0.0 到 1.0）
 
+  **审查修正：** 非数字回退 1.0，超出 [0,1] 钳位并输出 WARNING
+
 - [x] **P2-1.2：添加 OTLP HTTP 导出器选项** ✅
 
   支持 gRPC（默认）和 HTTP 导出器，通过 `OTEL_EXPORTER_OTLP_PROTOCOL` 配置
+
+  **审查修正：** protocol 添加合法性校验，无效值回退 gRPC 并输出 WARNING；HTTP 导出器移除 `insecure=True`（仅 gRPC 支持）
 
 - [x] **P2-1.3：添加 OTEL Collector 配置文件** ✅
 
@@ -336,12 +340,18 @@
 
   修改 `record_audit_event()`，支持同时输出到：
   - 日志（当前行为，默认）
-  - PostgreSQL audit_record 表（占位符实现）
-  - 对象存储（占位符实现）
+  - PostgreSQL audit_record 表（占位符实现，输出 WARNING 提醒未实际落库）
+  - 对象存储（占位符实现，输出 WARNING 提醒未实际归档）
 
   通过 `AUDIT_SINK` 环境变量配置：`log`（默认）、`log,db`、`log,db,object_storage`
   
   新增 `register_audit_handler()`/`unregister_audit_handler()` 自定义处理器机制
+
+  **审查修正：**
+  - `_get_audit_sinks()` 添加 `_VALID_SINKS` 校验，无效 sink 名输出 WARNING 并被忽略；全部无效时回退 `log`
+  - `configure_audit_sinks()` 改为进程内 `_override_sinks` 变量（优先级高于环境变量），不再写 `os.environ`，线程安全
+  - 新增 `reset_audit_sinks()` 清除覆盖恢复默认
+  - `_custom_audit_handlers` 从 `Set` 改为 `List`（lambda 不可哈希）
 
 - [ ] **P2-2.2：添加审计落库测试**
 
@@ -359,10 +369,15 @@
 
   添加 5 个告警：
   - HighErrorRate：高错误率（>10%）
-  - TaskExecutionTimeout：任务执行超时
+  - TaskExecutionTimeout：任务执行超过 60s
   - SandboxDeniedIncreased：沙箱拒绝次数异常
   - RecoveryUpgradeExcessive：恢复升级次数异常
   - ApiHighLatency：API 高延迟（95% 分位 >1s）
+
+  **审查修正：**
+  - 指标名对齐 api.py 中的实际 Prometheus Counter 名称，添加指标名注释
+  - TaskExecutionTimeout 表达式从 `bucket{le="60"}` 改为 `count - bucket{le="60"}`，语义从"60s 内完成的任务"修正为"超过 60s 的任务"
+  - TaskExecutionTimeout `for` 从 1m 改为 2m，减少瞬时告警噪音
 
 - [x] **P2-3.2：更新 Prometheus 配置引用告警规则** ✅
 
@@ -385,6 +400,12 @@
   - 拒绝挂载验证
 
   标记为 `@pytest.mark.integration`，需要 Docker 环境，自动检测可用性
+
+  **审查修正：**
+  - `docker_available()` 先用 `shutil.which("docker")` 快速检测
+  - 网络隔离测试改用 `python3 -c "import socket; ..."` 替代 `ping`（slim 镜像无 ping）
+  - 容器状态断言精确化为 `== "running"`，添加 `container.reload()`
+  - `test_denied_mount` 改用 `with` 语句防止容器泄漏
 
 - [ ] **P2-4.2：在 CI 中添加集成测试 job（条件运行）**
 
@@ -526,6 +547,7 @@ docker compose down
 15. `feat: add Prometheus alert rules`
 16. `test: add real Docker sandbox integration tests`
 17. `fix: P2 code review — audit forward ref, tracing validation, alert metric alignment, test robustness`
+18. `fix: P2 review round 2 — sink validation, in-process override, alert semantics, test precision`
 
 ### P3（P2 完成后）
 
