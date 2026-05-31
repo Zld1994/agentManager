@@ -575,6 +575,7 @@ docker compose down
 18. `feat: RuntimeFactory injects EngineeringMemory for workflow write-back`
 19. `feat: add resume_workflow method to WorkflowCoordinator`
 20. `test: add unified P3 e2e tests for memory write-back, checkpoint resume, and crash recovery`
+21. `fix: P3 code review — remove redundant import, precise return type, extract shared write_record, resume writes memory, remove getattr, fix test assertion`
 
 ---
 
@@ -598,4 +599,16 @@ docker compose down
 
 **P3 测试验证结果**：
 - `python -m pytest tests/e2e/test_workflow_resume_and_memory.py -v --no-cov` - 10 个通过
+- `python -m pytest -q --no-cov` - 652 通过，12 跳过
+
+**P3 代码审查修正 (2026-06-01)**:
+- #1: 删除 `_create_engineering_memory` 函数体内冗余 import
+- #2: `_create_engineering_memory` 返回类型 `-> Any` 改为 `-> Optional[EngineeringMemory]`
+- #3: `_create_engineering_memory` 忽略 settings 参数 — docstring 明确说明行为
+- #4: 提取 `_write_record_to_memory()` 消除代码重复，新增 `key_prefix` 参数修复前缀提取 bug
+- #5: `resume_workflow` 恢复已完成任务时写入 memory
+- #6: 去掉 `_restore_completed_tasks_from_checkpoints` 中多余 `getattr`
+- #7: `test_api.py` 断言改为 `"OK" in result.stdout.strip().splitlines()`
+
+**最终验证 (2026-06-01)**:
 - `python -m pytest -q --no-cov` - 652 通过，12 跳过

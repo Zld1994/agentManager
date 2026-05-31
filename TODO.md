@@ -176,3 +176,15 @@
 **验证完成 (2026-06-01)**:
 - `python -m pytest tests/e2e/test_workflow_resume_and_memory.py -v --no-cov` - 10 个通过
 - `python -m pytest -q --no-cov` - 652 通过，12 跳过
+
+**P3 代码审查修正 (2026-06-01)**:
+- #1: 删除 `_create_engineering_memory` 函数体内冗余的 `from agentManager.memory.engineering_memory import EngineeringMemory`（顶层已导入）
+- #2: `_create_engineering_memory` 返回类型从 `-> Any` 改为 `-> Optional[EngineeringMemory]`（类型安全）
+- #3: `_create_engineering_memory` 忽略 settings 参数 — 在 docstring 中明确说明 `EngineeringMemory.from_settings()` 直接读取环境变量，不遵循自定义 settings 的设计意图
+- #4: 提取 `_write_record_to_memory()` 公共方法消除 `_write_task_result_to_memory` 和 `_write_recovery_result_to_memory` 的代码重复，新增 `key_prefix` 参数避免 `record_type.split("_")[0]` 对 `"task_recovery"` 提取错误前缀
+- #5: `resume_workflow` 恢复已完成任务时写入 memory（`_restore_completed_tasks_from_checkpoints` 中调用 `_write_task_result_to_memory(task_id, node, "restored")`），补全闭环语义
+- #6: `_restore_completed_tasks_from_checkpoints` 中去掉多余的 `getattr(checkpoint, "status", None)`，改为直接 `checkpoint.status is None`（`load_checkpoint` 返回 `ExecutionContext` 已有 `status` 属性）
+- #7: `test_api.py` 断言从 `endswith("OK")` 改为 `"OK" in result.stdout.strip().splitlines()`，确保 "OK" 是独立一行
+
+**验证完成 (2026-06-01)**:
+- `python -m pytest -q --no-cov` - 652 通过，12 跳过
