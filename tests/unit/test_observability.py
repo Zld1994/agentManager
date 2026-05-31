@@ -19,12 +19,19 @@ from agentManager.observability.logging import (
 from agentManager.observability.audit import (
     AuditEvent,
     AuditEventType,
+    configure_audit_sinks,
     log_config_validation_failed,
     log_recovery_upgrade,
     log_sandbox_denied,
     log_task_executed,
     log_workflow_created,
     record_audit_event,
+    register_audit_handler,
+    reset_audit_sinks,
+    unregister_audit_handler,
+    _custom_audit_handlers,
+    _get_audit_sinks,
+    _override_sinks,
 )
 from agentManager.observability.tracing import (
     create_span,
@@ -247,3 +254,163 @@ class TestModuleImports:
         import agentManager.observability as obs
         for name in obs.__all__:
             assert hasattr(obs, name), f"Missing export: {name}"
+
+
+# ── Audit multi-sink tests ──────────────────────────────────────────────────
+
+
+class TestAuditMultiSink:
+    def setup_method(self):
+        _custom_audit_handlers.clear()
+        reset_audit_sinks()
+
+    def teardown_method(self):
+        _custom_audit_handlers.clear()
+        reset_audit_sinks()
+
+    def test_get_audit_sinks_default(self):
+        with patch.dict("os.environ", {}, clear=True):
+            sinks = _get_audit_sinks()
+            assert "log" in sinks
+
+    def test_get_audit_sinks_multiple(self):
+        configure_audit_sinks("log,db,object_storage")
+        sinks = _get_audit_sinks()
+        assert sinks == frozenset({"log", "db", "object_storage"})
+
+    def test_get_audit_sinks_rereads_override(self):
+        configure_audit_sinks("log")
+        assert "db" not in _get_audit_sinks()
+        configure_audit_sinks("log,db")
+        assert "db" in _get_audit_sinks()
+
+    def test_configure_audit_sinks(self):
+        configure_audit_sinks("log,db")
+        sinks = _get_audit_sinks()
+        assert "log" in sinks
+        assert "db" in sinks
+
+    def test_reset_audit_sinks(self):
+        configure_audit_sinks("log,db")
+        assert "db" in _get_audit_sinks()
+        reset_audit_sinks()
+        with patch.dict("os.environ", {"AUDIT_SINK": "log"}, clear=True):
+            assert "db" not in _get_audit_sinks()
+
+    def test_override_takes_priority_over_env(self):
+        configure_audit_sinks("log,object_storage")
+        with patch.dict("os.environ", {"AUDIT_SINK": "log,db"}, clear=True):
+            sinks = _get_audit_sinks()
+            assert sinks == frozenset({"log", "object_storage"})
+            assert "db" not in sinks
+
+    def test_invalid_sink_warns_and_ignored(self, caplog):
+        with patch.dict("os.environ", {"AUDIT_SINK": "log,foo,bar"}, clear=True):
+            with caplog.at_level(logging.WARNING, logger="agentManager.audit"):
+                sinks = _get_audit_sinks()
+            assert sinks == frozenset({"log"})
+            assert any("foo" in r.getMessage() for r in caplog.records)
+            assert any("bar" in r.getMessage() for r in caplog.records)
+
+    def test_all_invalid_sinks_falls_back_to_log(self, caplog):
+        with patch.dict("os.environ", {"AUDIT_SINK": "foo,bar"}, clear=True):
+            with caplog.at_level(logging.WARNING, logger="agentManager.audit"):
+                sinks = _get_audit_sinks()
+            assert sinks == frozenset({"log"})
+
+    def test_db_sink_emits_warning(self, caplog):
+        configure_audit_sinks("log,db")
+        with caplog.at_level(logging.WARNING, logger="agentManager.audit"):
+            record_audit_event(AuditEvent(
+                event_type=AuditEventType.TASK_EXECUTED,
+                resource="task-1",
+            ))
+        assert any("placeholder" in r.getMessage().lower() for r in caplog.records)
+
+    def test_object_storage_sink_emits_warning(self, caplog):
+        configure_audit_sinks("log,object_storage")
+        with caplog.at_level(logging.WARNING, logger="agentManager.audit"):
+            record_audit_event(AuditEvent(
+                event_type=AuditEventType.TASK_EXECUTED,
+                resource="task-1",
+            ))
+        assert any("placeholder" in r.getMessage().lower() for r in caplog.records)
+
+    def test_register_custom_handler(self):
+        received = []
+        register_audit_handler(lambda e: received.append(e))
+        record_audit_event(AuditEvent(
+            event_type=AuditEventType.CUSTOM,
+            resource="test",
+        ))
+        assert len(received) == 1
+        assert received[0].resource == "test"
+
+    def test_unregister_custom_handler(self):
+        received = []
+        handler = lambda e: received.append(e)
+        register_audit_handler(handler)
+        unregister_audit_handler(handler)
+        record_audit_event(AuditEvent(
+            event_type=AuditEventType.CUSTOM,
+            resource="test",
+        ))
+        assert len(received) == 0
+
+    def test_unregister_missing_handler_no_error(self):
+        unregister_audit_handler(lambda e: None)
+
+    def test_custom_handler_exception_does_not_break_others(self):
+        received = []
+        register_audit_handler(lambda e: 1 / 0)
+        register_audit_handler(lambda e: received.append(e))
+        record_audit_event(AuditEvent(
+            event_type=AuditEventType.CUSTOM,
+            resource="test",
+        ))
+        assert len(received) == 1
+
+
+# ── Tracing configuration tests ─────────────────────────────────────────────
+
+
+class TestTracingConfiguration:
+    def test_invalid_protocol_falls_back_with_warning(self, caplog):
+        with patch.dict("os.environ", {
+            "OTEL_TRACING_ENABLED": "true",
+            "OTEL_EXPORTER_OTLP_PROTOCOL": "invalid_proto",
+        }, clear=False):
+            with caplog.at_level(logging.WARNING):
+                result = setup_tracing(enabled=True)
+            assert result is False
+            assert any("invalid" in r.getMessage().lower() and "protocol" in r.getMessage().lower() for r in caplog.records)
+
+    def test_invalid_sample_rate_falls_back(self, caplog):
+        with patch.dict("os.environ", {
+            "OTEL_TRACING_ENABLED": "true",
+            "OTEL_TRACING_SAMPLE_RATE": "not_a_number",
+        }, clear=False):
+            with caplog.at_level(logging.WARNING):
+                result = setup_tracing(enabled=True)
+            assert result is False
+            assert any("sample_rate" in r.getMessage().lower() for r in caplog.records)
+
+    def test_out_of_range_sample_rate_clamped(self, caplog):
+        with patch.dict("os.environ", {
+            "OTEL_TRACING_ENABLED": "true",
+            "OTEL_TRACING_SAMPLE_RATE": "5.0",
+        }, clear=False):
+            with caplog.at_level(logging.WARNING):
+                result = setup_tracing(enabled=True)
+            assert result is False
+            assert any("clamping" in r.getMessage().lower() for r in caplog.records)
+
+    def test_negative_sample_rate_clamped(self, caplog):
+        with patch.dict("os.environ", {
+            "OTEL_TRACING_ENABLED": "true",
+            "OTEL_TRACING_SAMPLE_RATE": "-0.5",
+        }, clear=False):
+            with caplog.at_level(logging.WARNING):
+                result = setup_tracing(enabled=True)
+            assert result is False
+            assert any("clamping" in r.getMessage().lower() for r in caplog.records)

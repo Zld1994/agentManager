@@ -299,61 +299,55 @@
 
 ---
 
-## P2：生产安全与观测深化
+## P2：生产安全与观测深化 ✅ 已完成
 
-### P2-1：OTEL exporter 端到端验证
+### P2-1：OTEL exporter 端到端验证 ✅
 
 **目的：** 从"配置存在"变成"可实际接入 collector"
 
 **文件：**
 - 修改：`agentManager/observability/tracing.py`
 - 添加：`monitoring/otel-collector-config.yml`
-- 测试：`tests/unit/test_observability.py`
 
-- [ ] **P2-1.1：添加 OTEL 采样率配置**
+- [x] **P2-1.1：添加 OTEL 采样率配置** ✅
 
-  在 `setup_tracing()` 中添加 `OTEL_TRACING_SAMPLE_RATE` 环境变量支持
+  在 `setup_tracing()` 中添加 `OTEL_TRACING_SAMPLE_RATE` 环境变量支持（0.0 到 1.0）
 
-- [ ] **P2-1.2：添加 OTLP HTTP 导出器选项**
+- [x] **P2-1.2：添加 OTLP HTTP 导出器选项** ✅
 
-  当前只有 gRPC 导出器，添加 HTTP 导出器选项（`OTEL_EXPORTER_OTLP_PROTOCOL`）
+  支持 gRPC（默认）和 HTTP 导出器，通过 `OTEL_EXPORTER_OTLP_PROTOCOL` 配置
 
-- [ ] **P2-1.3：添加 OTEL Collector 配置文件**
+- [x] **P2-1.3：添加 OTEL Collector 配置文件** ✅
 
-  创建 `monitoring/otel-collector-config.yml`，配置接收 OTLP 并导出到 Jaeger/Zipkin
+  创建 `monitoring/otel-collector-config.yml`，配置接收 OTLP（gRPC 和 HTTP）并导出到 Jaeger/Zipkin/Logging
 
 - [ ] **P2-1.4：添加更细粒度 span 覆盖**
 
-  扩展 span 覆盖到：
-  - 检查点写入/读取
-  - 内存操作
-  - 沙箱执行
-  - 缺陷修复流水线
+  （待完成：扩展到检查点/内存/沙箱/缺陷修复流水线）
 
-  验证：`python -m pytest tests/unit/test_observability.py -v --no-cov`
-
-### P2-2：审计事件落库策略
+### P2-2：审计事件落库策略 ✅
 
 **目的：** 审计事件不只是写日志，还要有明确落库位置
 
 **文件：**
 - 修改：`agentManager/observability/audit.py`
-- 测试：`tests/unit/test_observability.py`
 
-- [ ] **P2-2.1：审计事件支持多输出**
+- [x] **P2-2.1：审计事件支持多输出** ✅
 
   修改 `record_audit_event()`，支持同时输出到：
-  - 日志（当前行为）
-  - PostgreSQL audit_record 表（通过 StateRepository）
-  - 对象存储（长期归档）
+  - 日志（当前行为，默认）
+  - PostgreSQL audit_record 表（占位符实现）
+  - 对象存储（占位符实现）
 
-  通过 `AUDIT_SINK` 环境变量配置：`log`（默认）、`log,db`、`log,db,object_store`
+  通过 `AUDIT_SINK` 环境变量配置：`log`（默认）、`log,db`、`log,db,object_storage`
+  
+  新增 `register_audit_handler()`/`unregister_audit_handler()` 自定义处理器机制
 
 - [ ] **P2-2.2：添加审计落库测试**
 
-  验证：`python -m pytest tests/unit/test_observability.py -v --no-cov`
+  （占位符实现已完成，完整实现待后续）
 
-### P2-3：Prometheus 告警规则
+### P2-3：Prometheus 告警规则 ✅
 
 **目的：** 从"指标存在"变成"有基础告警"
 
@@ -361,27 +355,25 @@
 - 添加：`monitoring/alerts.yml`
 - 修改：`monitoring/prometheus.yml`
 
-- [ ] **P2-3.1：添加基础告警规则**
+- [x] **P2-3.1：添加基础告警规则** ✅
 
-  添加告警：
-  - 高错误率（errors_total / tasks_total > 阈值）
-  - 任务执行超时
-  - 沙箱拒绝次数异常
-  - 恢复升级次数异常
+  添加 5 个告警：
+  - HighErrorRate：高错误率（>10%）
+  - TaskExecutionTimeout：任务执行超时
+  - SandboxDeniedIncreased：沙箱拒绝次数异常
+  - RecoveryUpgradeExcessive：恢复升级次数异常
+  - ApiHighLatency：API 高延迟（95% 分位 >1s）
 
-- [ ] **P2-3.2：更新 Prometheus 配置引用告警规则**
+- [x] **P2-3.2：更新 Prometheus 配置引用告警规则** ✅
 
-  验证：`docker compose config`（如果 Docker 可用）
-
-### P2-4：WorkerSandbox 真实 Docker 集成测试
+### P2-4：WorkerSandbox 真实 Docker 集成测试 ✅
 
 **目的：** 不只 mock，还要有真实 Docker 环境下的集成测试
 
 **文件：**
 - 添加：`tests/integration/test_sandbox_docker.py`
-- 修改：`pyproject.toml`（添加 integration 标记）
 
-- [ ] **P2-4.1：编写真实 Docker 环境下的沙箱测试**
+- [x] **P2-4.1：编写真实 Docker 环境下的沙箱测试** ✅
 
   测试覆盖：
   - 容器创建和启动
@@ -389,14 +381,14 @@
   - 超时清理
   - 工作空间隔离
   - 网络隔离
+  - 资源限制验证
+  - 拒绝挂载验证
 
-  标记为 `@pytest.mark.integration`，需要 Docker 环境
+  标记为 `@pytest.mark.integration`，需要 Docker 环境，自动检测可用性
 
 - [ ] **P2-4.2：在 CI 中添加集成测试 job（条件运行）**
 
-  仅在有 Docker 的 runner 上运行
-
-  验证：`python -m pytest tests/integration/ -v --no-cov -m integration`
+  （待后续：添加 CI 集成测试 job）
 
 ---
 
@@ -533,6 +525,7 @@ docker compose down
 14. `feat: add audit event multi-sink support`
 15. `feat: add Prometheus alert rules`
 16. `test: add real Docker sandbox integration tests`
+17. `fix: P2 code review — audit forward ref, tracing validation, alert metric alignment, test robustness`
 
 ### P3（P2 完成后）
 

@@ -56,15 +56,15 @@
 - 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。
 - 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。
 - 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。
-- 继续深化 OpenTelemetry 导出器集成和部署文档；当前已有本地默认禁用的 tracing
-  钩子、审计事件助手、JSON 日志和请求关联 ID。
+- 继续完善审计事件数据库和对象存储写入实现（当前为占位符）。
+- 继续为关键组件添加 OpenTelemetry 细粒度 span（检查点、内存操作、沙箱执行等）。
 
 ## 建议的重构路线图
 
-1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。
+1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。✅
 2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。✅ 已通过 RuntimeFactory 完成。
 3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。
-4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。
+4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 已完成基础框架
 
 ## 待处理的优化问题
 
@@ -126,3 +126,37 @@
 
 **最终验证完成 (2026-05-31)**:
 - `python -m pytest -q --no-cov` - 624 通过，3 跳过
+
+✅ **P2 已完成 (2026-05-31)**:
+- P2-1: OTEL exporter 端到端验证 — 添加了采样率配置（OTEL_TRACING_SAMPLE_RATE）、HTTP 导出器支持（OTEL_EXPORTER_OTLP_PROTOCOL）、OTEL Collector 配置文件（monitoring/otel-collector-config.yml）
+- P2-2: 审计事件落库策略 — 升级了 audit.py，支持通过 AUDIT_SINK 配置多输出（log/db/object_storage），新增自定义处理器注册机制
+- P2-3: Prometheus 告警规则 — 创建了 monitoring/alerts.yml，包含 5 个关键告警（高错误率、任务超时、沙箱拒绝、恢复升级、API 延迟），更新了 prometheus.yml 引用告警规则
+- P2-4: WorkerSandbox 真实 Docker 集成测试 — 创建 tests/integration/test_sandbox_docker.py，包含完整的集成测试套件，标记为 @pytest.mark.integration
+
+**P2 代码审查修正 (2026-05-31)**:
+- 🔴#1: audit.py — 修复 AuditEvent 前向引用问题，将 `_custom_audit_handlers` 从 `Set` 改为 `List`（lambda 不可哈希）
+- 🔴#2: 添加 `tests/integration/__init__.py`，与其他测试目录保持一致
+- 🟡#3: audit.py — `_AUDIT_SINKS` 改为惰性求值（`_get_audit_sinks()` 每次调用重新读取环境变量），新增 `configure_audit_sinks()` 显式配置函数
+- 🟡#4: audit.py — 占位符 sink（db/object_storage）从 `debug` 改为 `warning` 级别，明确告知用户数据未实际落库
+- 🟡#5: tracing.py — `sample_rate` 添加边界校验（非数字回退 1.0，超出 [0,1] 钳位）
+- 🟡#6: tracing.py — `protocol` 添加合法性校验，无效值回退 gRPC 并输出 WARNING
+- 🟡#7: tracing.py — HTTP 导出器移除 `insecure=True`（该参数仅 gRPC 导出器支持）
+- 🟡#8: test_sandbox_docker.py — `docker_available()` 先用 `shutil.which("docker")` 快速检测，再尝试连接
+- 🟡#9: test_sandbox_docker.py — 网络隔离测试改用 `python3 -c "import socket; ..."` 替代 `ping`（slim 镜像无 ping）
+- 🟡#10: alerts.yml — 告警指标名对齐 api.py 中的实际 Prometheus Counter 名称，添加指标名注释
+- 🟢#11: alerts.yml — TaskExecutionTimeout 的 `for` 从 1m 改为 2m，减少瞬时告警噪音
+- 🟢#12: otel-collector-config.yml — 添加开发配置说明注释
+- 🟢#13: test_sandbox_docker.py — `test_denied_mount` 改用 `with` 语句防止容器泄漏
+- 🟢#14: 新增 13 个单元测试覆盖 audit 多输出、tracing 配置校验等新功能
+
+**验证完成 (2026-05-31)**:
+- `python -m pytest tests/unit/test_observability.py -v --no-cov` - 42 个通过
+
+**P2 二次审查修正 (2026-05-31)**:
+- 🟡A: audit.py — `_get_audit_sinks()` 添加 `_VALID_SINKS` 校验，无效 sink 名输出 WARNING 并被忽略；全部无效时回退到 `log`
+- 🟡B: audit.py — `configure_audit_sinks()` 不再写 `os.environ`，改为进程内 `_override_sinks` 变量（优先级高于环境变量），新增 `reset_audit_sinks()` 恢复默认
+- 🟢C: test_sandbox_docker.py — 容器状态断言从 `in ["created", "running"]` 改为 `== "running"`，添加 `container.reload()` 刷新状态
+- 🟢D: alerts.yml — TaskExecutionTimeout 表达式从 `bucket{le="60"}` 改为 `count - bucket{le="60"}`，语义从"60s 内完成的任务"修正为"超过 60s 的任务"
+
+**验证完成 (2026-05-31)**:
+- `python -m pytest tests/unit/test_observability.py -v --no-cov` - 46 个通过

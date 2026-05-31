@@ -1,20 +1,62 @@
 """Audit event helpers for security-critical actions.
 
 All audit events are emitted as structured JSON log records at INFO level
-under the ``agentManager.audit`` logger namespace.  They can be forwarded to any log
-aggregator (Loki, ELK, CloudWatch) without additional infrastructure.
+under the ``agentManager.audit`` logger namespace. They can also be written
+to PostgreSQL database and object storage for long-term retention via the
+AUDIT_SINK environment variable (default: "log").
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, FrozenSet, List, Optional
 
 
 logger = logging.getLogger("agentManager.audit")
+
+_VALID_SINKS = frozenset({"log", "db", "object_storage"})
+
+_override_sinks: Optional[str] = None
+
+
+def _get_audit_sinks() -> FrozenSet[str]:
+    """Return the current set of audit sinks.
+
+    Priority: in-process override (``configure_audit_sinks``) > env var
+    ``AUDIT_SINK`` > default ``"log"``.  Unknown sink names emit a warning
+    and are dropped from the returned set.
+    """
+    raw = _override_sinks if _override_sinks is not None else os.getenv("AUDIT_SINK", "log")
+    raw = raw.lower()
+    requested = [s.strip() for s in raw.split(",") if s.strip()]
+    valid: list[str] = []
+    for s in requested:
+        if s in _VALID_SINKS:
+            valid.append(s)
+        else:
+            logger.warning("Unknown audit sink %r ignored (valid: %s)", s, sorted(_VALID_SINKS))
+    return frozenset(valid) or frozenset({"log"})
+
+
+def configure_audit_sinks(sinks: str) -> None:
+    """Set the audit sinks for the current process (in-process override).
+
+    This takes precedence over the ``AUDIT_SINK`` environment variable and
+    is safe to use in multi-threaded contexts.  Call
+    :func:`reset_audit_sinks` to restore default behaviour.
+    """
+    global _override_sinks
+    _override_sinks = sinks
+
+
+def reset_audit_sinks() -> None:
+    """Clear the in-process sink override, reverting to env / default."""
+    global _override_sinks
+    _override_sinks = None
 
 
 class AuditEventType(str, Enum):
@@ -42,9 +84,65 @@ class AuditEvent:
         return d
 
 
+_custom_audit_handlers: List[Callable[[AuditEvent], None]] = []
+
+
 def record_audit_event(event: AuditEvent) -> None:
-    """Emit an audit event as a structured log record."""
-    logger.info("AUDIT", extra={"audit": event.to_dict()})
+    """Emit an audit event to configured sinks."""
+    sinks = _get_audit_sinks()
+    event_dict = event.to_dict()
+
+    if "log" in sinks:
+        logger.info("AUDIT", extra={"audit": event_dict})
+
+    if "db" in sinks:
+        try:
+            _write_to_db(event)
+        except Exception:
+            logger.exception("Failed to write audit event to database")
+
+    if "object_storage" in sinks:
+        try:
+            _write_to_object_storage(event)
+        except Exception:
+            logger.exception("Failed to write audit event to object storage")
+
+    for handler in _custom_audit_handlers:
+        try:
+            handler(event)
+        except Exception:
+            logger.exception("Custom audit handler failed")
+
+
+def register_audit_handler(handler: Callable[[AuditEvent], None]) -> None:
+    """Register a custom audit event handler."""
+    _custom_audit_handlers.append(handler)
+
+
+def unregister_audit_handler(handler: Callable[[AuditEvent], None]) -> None:
+    """Unregister a custom audit event handler."""
+    try:
+        _custom_audit_handlers.remove(handler)
+    except ValueError:
+        pass
+
+
+def _write_to_db(event: AuditEvent) -> None:
+    """Write audit event to database via state repository if available."""
+    logger.warning(
+        "Audit db sink is a placeholder — event %s not actually persisted. "
+        "Configure a StateRepository to enable database audit storage.",
+        event.event_type.value,
+    )
+
+
+def _write_to_object_storage(event: AuditEvent) -> None:
+    """Write audit event to object storage if available."""
+    logger.warning(
+        "Audit object_storage sink is a placeholder — event %s not actually archived. "
+        "Configure an ObjectStore to enable object storage audit archival.",
+        event.event_type.value,
+    )
 
 
 # ── Convenience functions ────────────────────────────────────────────────────

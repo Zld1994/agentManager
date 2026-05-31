@@ -1,0 +1,35 @@
+# OpenTelemetry Collector configuration for agentManager.
+#
+# This is a development / evaluation configuration that enables all three
+# exporters (Jaeger, Zipkin, Logging) simultaneously.  For production, select
+# only the exporter(s) that match your observability stack and remove the rest.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:4317"
+      http:
+        endpoint: "0.0.0.0:4318"
+
+processors:
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+
+exporters:
+  jaeger:
+    endpoint: "jaeger:14250"
+    tls:
+      insecure: true
+  zipkin:
+    endpoint: "http://zipkin:9411/api/v2/spans"
+  logging:
+    loglevel: debug
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [jaeger, zipkin, logging]

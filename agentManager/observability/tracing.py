@@ -14,7 +14,9 @@ from typing import Any, Generator, Optional
 
 logger = logging.getLogger(__name__)
 
-_tracer: Any = None  # Will be an opentelemetry Tracer or None
+_tracer: Any = None
+
+_VALID_PROTOCOLS = {"grpc", "http/protobuf"}
 
 
 def setup_tracing(
@@ -29,6 +31,8 @@ def setup_tracing(
       - OTEL_TRACING_ENABLED (default false)
       - OTEL_SERVICE_NAME  (default "agentManager")
       - OTEL_EXPORTER_OTLP_ENDPOINT (default "http://localhost:4317")
+      - OTEL_EXPORTER_OTLP_PROTOCOL (default "grpc", supports "http/protobuf")
+      - OTEL_TRACING_SAMPLE_RATE (default 1.0, 0.0 to 1.0)
     """
     global _tracer
 
@@ -44,23 +48,64 @@ def setup_tracing(
     endpoint = endpoint or os.getenv(
         "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"
     )
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
+
+    if protocol not in _VALID_PROTOCOLS:
+        logger.warning(
+            "Invalid OTEL_EXPORTER_OTLP_PROTOCOL=%r (must be one of %s). "
+            "Falling back to 'grpc'.",
+            protocol, sorted(_VALID_PROTOCOLS),
+        )
+        protocol = "grpc"
+
+    sample_rate_raw = os.getenv("OTEL_TRACING_SAMPLE_RATE", "1.0")
+    try:
+        sample_rate = float(sample_rate_raw)
+    except ValueError:
+        logger.warning(
+            "Invalid OTEL_TRACING_SAMPLE_RATE=%r (not a number). "
+            "Falling back to 1.0.",
+            sample_rate_raw,
+        )
+        sample_rate = 1.0
+
+    if sample_rate < 0.0 or sample_rate > 1.0:
+        logger.warning(
+            "OTEL_TRACING_SAMPLE_RATE=%.4f is outside [0, 1]. Clamping to range.",
+            sample_rate,
+        )
+        sample_rate = max(0.0, min(1.0, sample_rate))
 
     try:
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter,
-        )
+        from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
         from opentelemetry.sdk.resources import Resource
 
+        sampler = TraceIdRatioBased(sample_rate)
+
         resource = Resource.create({"service.name": service_name})
-        provider = TracerProvider(resource=resource)
-        exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+        provider = TracerProvider(resource=resource, sampler=sampler)
+
+        if protocol == "http/protobuf":
+            from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+                OTLPSpanExporter,
+            )
+            exporter = OTLPSpanExporter(endpoint=endpoint)
+        else:
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+                OTLPSpanExporter,
+            )
+            exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
+
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
         _tracer = trace.get_tracer(service_name)
-        logger.info("OpenTelemetry tracing enabled: service=%s endpoint=%s", service_name, endpoint)
+        logger.info(
+            "OpenTelemetry tracing enabled: service=%s endpoint=%s protocol=%s sample_rate=%.2f",
+            service_name, endpoint, protocol, sample_rate
+        )
         return True
     except ImportError:
         logger.warning(
@@ -116,7 +161,6 @@ def create_span(name: str, attributes: Optional[dict[str, Any]] = None) -> Gener
                 from opentelemetry.trace import Status, StatusCode
                 span.set_status(Status(StatusCode.ERROR, str(exc)))
             except ImportError:
-                # OpenTelemetry not installed — span is a no-op or minimal stub
                 pass
             raise
 
