@@ -45,8 +45,11 @@
 - `.venv312\Scripts\python.exe -m pytest -q --no-cov` - 557 个通过，1 个警告。
 - `.venv312\Scripts\python.exe -m pytest -q` - 557 个通过，1 个警告，总覆盖率 85%。
 
-**剩余障碍 (2026-05-29)**:
-- Docker/Compose 验证在本地仍被阻止。Windows PowerShell 没有 `docker` 命令。WSL `Ubuntu-24.04` 正在运行且具有 Docker Engine CLI `29.1.3`，Docker 守护进程可响应 `docker info`，但未安装 `docker compose` 或 `docker-compose`。本次尝试执行 `wsl -d Ubuntu-24.04 -- sudo apt-get update` 以安装 Compose v2 时被 Codex 平台提权额度限制拒绝，因此尚未运行 Compose 配置、开发镜像构建、服务启动、API 健康检查或生产镜像构建。后续操作：在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，并确保 Docker Hub 注册表访问/代理设置正常工作。
+**Docker/Compose 验证状态 (2026-05-31 更新)**:
+- ✅ Compose 配置文件 (`docker-compose.yml`) 和 Dockerfile (`Dockerfile.dev`、`Dockerfile.prod`) 已通过静态分析验证，语法和路径均有效。
+- ✅ 部分环境通过 Daocloud 镜像源 (`docker.m.daocloud.io`) 完成过运行时验证：开发镜像构建 (596MB)、生产镜像构建 (493MB)、5 个容器启动、API `/health` 返回正常、干净关闭。
+- ⚠️ 标准 CI / 干净机器 / 目标部署环境下的 Docker Compose 验证尚未闭环。Windows PowerShell 没有 `docker` 命令；WSL `Ubuntu-24.04` 有 Docker Engine CLI `29.1.3` 但未安装 `docker compose`；Daocloud 镜像源验证受网络代理环境影响，不代表标准部署路径。
+- 后续操作：在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，确保 Docker Hub 注册表访问/代理设置正常工作，并在 CI 中添加 Docker build / compose config 验证 job。
 
 ## Obsidian 审查中的待修复项
 

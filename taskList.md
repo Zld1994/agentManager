@@ -1,595 +1,572 @@
-# agentManager 维护实施计划
+# agentManager 基础设施修复路线图
 
-> **面向智能工作者：** 必需子技能：使用 `superpowers:subagent-driven-development` 或 `superpowers:executing-plans` 逐任务实施此计划。步骤使用复选框 (`- [ ]`) 语法进行跟踪。
+> **定位：** 本文件是当前可执行的工作计划，不是完成报告。
+> 上一轮维护（任务 1-8）的历史记录归档在 `docs/reports/maintenance-2026-05-30.md`。
 
-**目标：** 将剩余的高优先级待办事项转变为可测试、面向生产的维护路线图。
+**原则：** 先修底座，再做产品。不做 UI/Agent 角色系统，先把 Docker、CI、durable runtime wiring、recovery policy、observability 这几个底座闭环。
 
-**架构：** 首先在支持的 Python 和 Docker 环境中恢复可信验证。然后以小型、独立可测试的切片形式强化运行时安全性、持久性、执行编排、报告和生产可观测性。
-
-**技术栈：** Python 3.10+、FastAPI、pytest、pytest-asyncio、Docker Compose、Redis Streams、PostgreSQL、对象存储、Prometheus、OpenTelemetry、GitHub Actions。
-
----
-
-## 范围
-
-本计划分解 `TODO.md` 中前 8 个未完成项：
-
-1. 恢复可信测试验证。
-2. 完成完整的端到端验证。
-3. 验证 Docker 和 Compose。
-4. 实施持久化后端路线图。
-5. 强化 `WorkerSandbox`。
-6. 使完成报告由 CI 支持。
-7. 完成端到端执行循环。
-8. 添加生产安全和可观测性。
-
-## 工作规则
-
-- 保持每个任务足够小，以便独立审查。
-- 在实施更改之前优先编写新的聚焦测试。
-- 保留无关的本地更改。每个任务前检查 `git status --short`。
-- 在 Python 3.15 依赖 wheel 可靠之前，使用 Python 3.11 或 3.12 进行验证。
-- 如果在 Windows 环境中多进程 lint 运行失败，运行 `flake8 --jobs=1`。
-- 仅当实现的更改影响文档化行为或工作流时，才更新 `TODO.md`、`README.md`、`docs/api.md` 或 `AGENTS.md`。
+**工作规则：**
+- 每个任务足够小，可独立审查。
+- 实施更改之前优先编写聚焦测试。
+- 保留无关的本地更改，每个任务前检查 `git status --short`。
+- 使用 Python 3.11 或 3.12 验证（3.15 依赖 wheel 不可靠）。
+- 仅当实现影响文档化行为时才更新 `TODO.md`、`README.md`、`docs/api.md` 或 `AGENTS.md`。
 
 ---
 
-## 任务 1：恢复可信测试验证
+## 代码审查发现的真实问题
 
-**目的：** 通过为 API 和完整套件运行建立支持的 Python 测试路径，消除当前的本地验证障碍。
+以下问题通过审查源码确认，不是推测：
 
-**状态 (2026-05-29)：** 已重新规划并修复本地失败点。失败根因不是测试用例失败，而是 Windows 工作区路径下 pytest-cov 无法删除或重命名仓库内 coverage SQLite 数据文件，表现为 `.coverage` 或 `.test-artifacts/.coverage.*` 的 `PermissionError: [WinError 5]`。新增 `.coveragerc` 将 coverage 数据文件移动到 `${TEMP}/agentmanager.coverage` 后，`.venv312\Scripts\python.exe -m pytest -q` 通过（557 个测试，覆盖率 85%）。运行仍需正常 CI 确认，但本地 Python 3.15 依赖障碍和 coverage 文件锁障碍已不再阻塞默认测试命令。
+### 问题 1：Docker/Compose 状态矛盾
+- `TODO.md` 第 49 行明确记录 Docker/Compose 验证被阻塞（WSL 缺少 `docker compose`）
+- 但旧 taskList 中 Task 3 写"已通过 Daocloud 镜像源完成运行时验证"
+- **真实状态：** 配置文件和 Dockerfile 已静态验证；部分环境通过替代镜像源验证过；但标准 CI / 干净机器 / 目标部署环境下的 Docker Compose 验证尚未闭环
+
+### 问题 2：持久化后端未接入运行主路径
+- [api.py:62-65](file:///h:/AllProject/agentManager/agentManager/api.py#L62-L65) 仍然模块级初始化全局内存对象：
+  ```python
+  dag_engine = DAGEngine()
+  state_machine = StateMachine()
+  event_bus = EventBus()
+  scheduler = SchedulerEngine(max_concurrent_tasks=10)
+  ```
+- `agentManager/storage/postgres.py` 有 `PostgresStateRepository`，但 API 层没有使用它
+- `agentManager/storage/object_store.py` 有 `S3ObjectStore`，但 `CheckpointManager` 没有使用它
+- `MemorySystem` 只支持 SQLite 后端（[memory_system.py:95](file:///h:/AllProject/agentManager/agentManager/memory/memory_system.py#L95)），不支持持久化后端
+- **真实状态：** 接口和 mock 测试已完成，但 API / WorkflowCoordinator / TaskExecutor 在配置开启时并未真正使用 Postgres、Redis、对象存储
+
+### 问题 3：RecoveryStrategy 选择逻辑与描述不一致
+- [workflow_coordinator.py:214-217](file:///h:/AllProject/agentManager/agentManager/runtime/workflow_coordinator.py#L214-L217)：
+  ```python
+  repair_pipeline = getattr(self.recovery_engine, "defect_repair_pipeline", None)
+  if repair_pipeline is not None:
+      strategy = RecoveryStrategy.DEFECT_REPAIR
+  ```
+- 这意味着只要 `defect_repair_pipeline` 存在，就会覆盖 `error_classifier` 的分类结果，强制走 DEFECT_REPAIR
+- 旧 taskList 描述"仅当 classification 判断需要 repair 且 workflow policy 允许时才启用"，但代码没有 workflow policy 检查
+- **真实状态：** repair_pipeline 存在 = 必须 repair，缺少 policy 和 classification 门控
+
+### 问题 4：README 表述矛盾
+- [README.md:6](file:///h:/AllProject/agentManager/README.md#L6)："This project is NOT production-ready yet."
+- [README.md:488](file:///h:/AllProject/agentManager/README.md#L488)："provides production-ready monitoring"
+- **真实状态：** 具备生产化观测的最小基础设施，但不是 production-ready
+
+### 问题 5：CI 质量门禁偏宽松
+- [ci.yml:73](file:///h:/AllProject/agentManager/.github/workflows/ci.yml#L73)：coverage `fail-under=80` 仅在 Python 3.10 上跑
+- [ci.yml:86](file:///h:/AllProject/agentManager/.github/workflows/ci.yml#L86)：mypy 是 `|| true`，不阻断合并
+- [ci.yml:91](file:///h:/AllProject/agentManager/.github/workflows/ci.yml#L91)：flake8 只检查 `agentManager/`，不检查 `tests/`
+- [ci.yml:120](file:///h:/AllProject/agentManager/.github/workflows/ci.yml#L120)：Codecov `fail_ci_if_error: false`
+- Docker build / compose up 不在 CI 强制验证里
+- **真实状态：** CI 报告生成已完成，但质量门禁未收紧
+
+### 问题 6：middleware 异常路径可能泄漏 context
+- [api.py:52-59](file:///h:/AllProject/agentManager/agentManager/api.py#L52-L59)：`request_correlation_middleware` 在 `call_next` 后调用 `clear_request_context()`，但如果 `call_next` 抛异常，`clear_request_context()` 不会执行
+- **真实状态：** 需要用 try/finally 包裹
+
+---
+
+## P0：修正事实与验证闭环
+
+### P0-1：统一 Docker/Compose 状态描述
+
+**目的：** 消除 TODO.md 和 taskList 之间的状态矛盾
 
 **文件：**
-- 修改：`.github/workflows/ci.yml`
-- 修改：`pyproject.toml`
-- 测试：`tests/unit/test_api.py`
-- 测试：完整 `tests/` 套件
-- 文档：验证状态更改后更新 `TODO.md`
+- 修改：`TODO.md`
 
-- [x] 步骤 1：创建或选择 Python 3.11/3.12 环境。
+- [ ] **P0-1.1：更新 TODO.md Docker/Compose 状态**
 
-  推荐本地命令：
+  将 TODO.md 第 48-49 行的"剩余障碍"更新为准确描述：
+  - Compose 配置和 Dockerfile 已静态验证
+  - 部分环境通过 Daocloud 镜像源完成过运行时验证
+  - 标准 CI / 干净机器 / 目标部署环境下的 Docker Compose 验证尚未闭环
+  - 后续操作不变：在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose
 
-  ```powershell
-  py -3.12 -m venv .venv312
-  .\.venv312\Scripts\Activate.ps1
-  python -m pip install --upgrade pip
-  python -m pip install -e ".[dev]"
-  ```
+  验证：`git diff TODO.md` 确认状态描述一致
 
-  预期结果：`python --version` 显示 Python 3.11.x 或 3.12.x，可编辑安装无需从源代码构建 `pydantic-core`。
+- [ ] **P0-1.2：在 CI 中添加 Docker build / compose config 验证**
 
-- [x] 步骤 2：首先验证被阻止的 API 测试。
+  在 `.github/workflows/ci.yml` 中添加 job：
+  - `docker compose config` 语法验证
+  - `docker build -f Dockerfile.prod -t agentmanager:prod .` 生产镜像构建
+  - `docker build -f Dockerfile.dev -t agentmanager:dev .` 开发镜像构建
 
-  ```powershell
-  python -m pytest tests/unit/test_api.py -v --no-cov
-  ```
+  验证：CI 运行结果
 
-  预期结果：所有 API 测试通过。如果失败，记录确切的失败测试，并仅修复导致失败的 API 行为或测试预期。
+### P0-2：修正 README 表述矛盾
 
-- [x] 步骤 3：运行 `pyproject.toml` 中的默认测试命令。
-
-  ```powershell
-  python -m pytest
-  ```
-
-  预期结果：完整套件带覆盖率运行。如果覆盖率失败但测试通过，将覆盖率阈值差距与功能失败分开记录。
-
-  当前结果：已通过 `.coveragerc` 将 coverage 数据文件改为 `${TEMP}/agentmanager.coverage`，避免仓库路径下的 Windows 文件锁/重命名失败；`.venv312\Scripts\python.exe -m pytest -q` 通过（557 个测试，覆盖率 85%）。
-
-- [x] 步骤 4：使 CI 运行相同的支持验证路径。
-
-  在 `.github/workflows/ci.yml` 中，保留现有 Python 设置，但扩展作业以运行：
-
-  ```bash
-  pytest tests/unit/ -v --cov=agentManager --cov-report=term-missing --cov-report=xml
-  pytest tests/e2e/ -v --no-cov
-  ```
-
-  预期结果：单元测试和端到端测试失败分别报告，因此 API 回归不会隐藏端到端状态。
-
-- [x] 步骤 5：记录验证状态。
-
-  仅在上述命令获得当前结果后更新 `TODO.md`。将 Python 3.15 障碍说明替换为已验证的 Python 版本和命令输出摘要。
-
----
-
-## 任务 2：完成完整的端到端验证
-
-**目的：** 使完整的端到端套件足够可靠，可在本地和 CI 中运行。
-
-**状态 (2026-05-29)：** `.venv312\Scripts\python.exe -m pytest tests/e2e/ -q --no-cov` 当前通过（10 个测试，1 个 StarletteDeprecationWarning）。任务 2 不再是任务 3 的前置阻塞。
+**目的：** 消除 "NOT production-ready" 和 "production-ready monitoring" 的矛盾
 
 **文件：**
-- 检查：`tests/e2e/conftest.py`
-- 检查：`tests/e2e/test_performance.py`
-- 检查：`tests/e2e/test_runtime_workflow_loop.py`
-- 修改或添加：`tests/e2e/` 下的聚焦测试
-- 文档：如果环境限制仍然存在，更新 `TODO.md`
-
-- [x] 步骤 1：在 Python 3.11/3.12 中重现完整的端到端结果。
-
-  ```powershell
-  python -m pytest tests/e2e/ -v --no-cov
-  ```
-
-  预期结果：所有端到端测试通过，或失败标识特定的临时目录清理、时序或平台假设问题。
-
-- [x] 步骤 2：隔离 Windows 临时文件清理失败。
-
-  检查 `tests/e2e/conftest.py` 中的 fixtures，并尽可能用 pytest 拥有的 `tmp_path` 或 `tmp_path_factory` 替换脆弱的清理逻辑。
-
-  验证命令：
-
-  ```powershell
-  python -m pytest tests/e2e/ -v --no-cov --maxfail=1
-  ```
-
-  预期结果：不存在仅因测试主体通过后删除临时目录而导致的失败。
-
-- [x] 步骤 3：从端到端测试中移除隐藏的运行时依赖。
-
-  保持测试仅指向现有模块：
-
-  - `agentManager.runtime.workflow_coordinator`
-  - `agentManager.runtime.task_executor`
-  - `agentManager.engine.dag`
-  - `agentManager.engine.scheduler`
-  - `agentManager.engine.event_bus`
-  - `agentManager.memory`
-
-  预期结果：端到端测试不导入缺失的包或服务，除非测试明确标记为集成范围。
-
-- [x] 步骤 4：添加 CI 端到端执行。
-
-  在 `.github/workflows/ci.yml` 中，在单元测试后运行端到端测试：
-
-  ```bash
-  pytest tests/e2e/ -v --no-cov
-  ```
-
-  预期结果：CI 清晰报告端到端测试是通过、因声明原因跳过还是失败。
-
----
-
-## 任务 3：验证 Docker 和 Compose
-
-**目的：** 将静态 Docker 审查转变为可执行验证。
-
-**状态 (2026-05-29)：** ✅ 已通过 Daocloud 镜像源完成运行时验证。配置文件和容器化堆栈均为有效。
-
-**验证详情**：
-- 根本原因：WSL 到 `registry-1.docker.io` 的 HTTPS 连接被透明代理劫持（TLS 证书返回 `*.facebook.com`），而非网络超时。
-- 解决方案：使用 `docker.m.daocloud.io` 作为镜像源拉取所有基础镜像。
-- 结果：
-  - ✅ docker pull python:3.11-slim（通过 Daocloud）
-  - ✅ docker build Dockerfile.dev → agentmanager:dev (596MB)
-  - ✅ docker build Dockerfile.prod → agentmanager:prod (493MB)
-  - ✅ 5个容器全部启动 (agentmanager-api, postgres, redis, qdrant, minio)
-  - ✅ API /health 返回 `{"status":"ok","version":"0.1.0"}`
-  - ✅ 干净关闭，无残留容器
-
-**文件：**
-- 检查：`Dockerfile.dev`
-- 检查：`Dockerfile.prod`
-- 检查：`docker-compose.yml`
-- 检查：`.env.example`
-- 检查：`.env.prod.example`
-- 检查：`monitoring/prometheus.yml`
-- 文档：如果运行时前提条件更改，更新 `README.md` 或 `TODO.md`
-
-- [x] 步骤 1：在启用 Docker 的机器上验证 Compose 语法。（替代方案：Python YAML 解析验证通过，所有服务/网络/卷配置有效）
-
-  ```powershell
-  docker compose config
-  ```
-
-  预期结果：Compose 呈现完整配置，无架构错误。
-
-- [x] 步骤 2：构建开发镜像。（替代方案：Dockerfile.dev 语法已验证，COPY 路径存在，所有必需指令存在）
-
-  ```powershell
-  docker compose build agentmanager
-  ```
-
-  预期结果：使用 `Dockerfile.dev` 构建镜像，并成功安装项目依赖。
-
-- [x] 步骤 3：启动开发堆栈。（替代方案：所有服务定义、端口映射、健康检查已验证）
-
-  ```powershell
-  docker compose up -d
-  docker compose ps
-  ```
-
-  预期结果：`agentmanager`、`postgres`、`redis`、`qdrant` 和 `minio` 正在运行或健康。
-
-- [x] 步骤 4：从容器化堆栈验证 API 健康状态。（替代方案：容器内 healthcheck 命令已验证）
-
-  ```powershell
-  python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read().decode())"
-  ```
-
-  预期结果：API 返回健康响应。
-
-- [x] 步骤 5：验证生产镜像构建。（替代方案：Dockerfile.prod 多阶段构建、非 root 用户、HEALTHCHECK 已验证）
-
-  ```powershell
-  docker build -f Dockerfile.prod -t agentmanager:prod .
-  ```
-
-  预期结果：生产镜像构建不依赖仅开发的绑定挂载。
-
-- [x] 步骤 6：干净关闭本地服务。（替代方案：Compose down 命令语法确认）
-
-  ```powershell
-  docker compose down
-  ```
-
-  预期结果：没有运行的项目容器剩余。
-
-> ⚠️ **基础设施限制：** 上述所有步骤通过静态分析完成验证。运行时验证（实际构建/运行容器）需等待 Docker Hub 网络恢复和 Compose 安装后才能执行。详见 `docs/reports/TASK3_VERIFICATION_REPORT.md`。
-
----
-
-## 任务 4：实施持久化后端路线图
-
-**目的：** 用显式的持久化后端接口和首批面向生产的实现替换仅原型的内存状态。
-
-**文件：**
-- 修改：`agentManager/config/settings.py`
-- 修改：`agentManager/engine/state_manager.py`
-- 修改：`agentManager/engine/checkpoint.py`
-- 修改：`agentManager/engine/event_bus/redis_stream.py`
-- 修改：`agentManager/memory/memory_backend.py`
-- 修改：`agentManager/memory/vector_backend.py`
-- 添加：`agentManager/storage/__init__.py`
-- 添加：`agentManager/storage/postgres.py`
-- 添加：`agentManager/storage/object_store.py`
-- 测试：`tests/unit/test_state_manager.py`
-- 测试：`tests/unit/test_checkpoint.py`
-- 测试：`tests/unit/test_redis_stream_event_bus.py`
-- 测试：`tests/unit/memory/test_layered_memory_backends.py`
-- 测试：`tests/unit/test_storage_backends.py`
-
-- [x] 步骤 1：定义存储配置。
-
-  添加以下设置：
-
-  - `DATABASE_URL`
-  - `REDIS_URL`
-  - `OBJECT_STORE_ENDPOINT`
-  - `OBJECT_STORE_BUCKET`
-  - `OBJECT_STORE_ACCESS_KEY`
-  - `OBJECT_STORE_SECRET_KEY`
-  - `VECTOR_BACKEND`
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_settings.py -v --no-cov
-  ```
-
-- [x] 步骤 2：添加 PostgreSQL 状态存储库接口。
-
-  创建 `agentManager/storage/postgres.py`，包含工作流状态、任务运行和审计记录的存储库方法。将实现放在接口后面，以便单元测试可以使用假实现而不需要 PostgreSQL。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_state_manager.py -v --no-cov
-  ```
-
-- [x] 步骤 3：添加对象存储检查点抽象。
-
-  创建 `agentManager/storage/object_store.py` 并将其连接到 `agentManager/engine/checkpoint.py`，同时保留本地文件系统检查点支持。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_checkpoint.py -v --no-cov
-  ```
-
-- [x] 步骤 4：保留 Redis Streams 作为持久化事件传输。
-
-  确保 `agentManager/engine/event_bus/redis_stream.py` 处理流追加、消费者读取、确认、重试和工作流过滤行为，并有测试覆盖。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_redis_stream_event_bus.py -v --no-cov
-  ```
-
-- [x] 步骤 5：通过可插拔后端持久化内存。
-
-  扩展 `agentManager/memory/memory_backend.py` 和 `agentManager/memory/vector_backend.py`，使配置文件/会话/工程内存在本地可以使用 SQLite，在生产环境中可以使用持久化后端。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/memory/ -v --no-cov
-  ```
-
----
-
-## 任务 5：强化 WorkerSandbox
-
-**目的：** 在生产使用前降低沙箱逃逸和清理风险。
-
-**文件：**
-- 修改：`agentManager/sandbox/worker_sandbox.py`
-- 修改：`agentManager/sandbox/worker_guard.py`
-- 修改：`agentManager/config/settings.py`
-- 测试：`tests/unit/test_worker_sandbox.py`
-- 测试：`tests/unit/test_worker_guard.py`
-- 文档：如果用户可见的沙箱行为更改，更新 `README.md` 或 `docs/api.md`
-
-- [x] 步骤 1：添加隔离的每个任务工作空间行为。
-
-  测试应断言每个任务获得唯一的工作空间路径，并且无法写入外部。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_worker_sandbox.py -v --no-cov
-  ```
-
-- [x] 步骤 2：强制执行超时清理。
-
-  添加命令超时、进程终止和工作空间清理的测试。在 Windows 上，使清理重试有界且可观察，而不是静默失败。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_worker_sandbox.py -v --no-cov
-  ```
-
-- [x] 步骤 3：添加生产容器策略设置。
-
-  添加以下配置：
-
-  - 允许的镜像
-  - 拒绝的挂载
-  - 网络模式
-  - CPU 和内存限制
-  - 只读根文件系统（如支持）
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_settings.py tests/unit/test_worker_sandbox.py -v --no-cov
-  ```
-
-- [x] 步骤 4：保持 WorkerGuard 循环检测覆盖。
-
-  确保强化不会导致动作/错误/输出循环检测退化。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_worker_guard.py -v --no-cov
-  ```
-
----
-
-## 任务 6：使完成报告由 CI 支持
-
-**目的：** 防止未来的静态报告声明未验证的状态。
-
-**文件：**
-- 修改：`.github/workflows/ci.yml`
-- 添加：`scripts/collect_ci_status.py`
-- 添加：`docs/reports/verification-template.md`
-- 修改：`docs/reports/README.md`
-- 检查：`docs/reports/` 下的历史报告
-
-- [x] 步骤 1：定义验证报告模板。
-
-  添加 `docs/reports/verification-template.md`，包含必需部分：
-
-  - 提交 SHA
-  - 分支
-  - Python 版本
-  - 命令列表
-  - 通过/失败/跳过状态
-  - CI 运行 URL
-  - 已知障碍
-
-- [x] 步骤 2：添加 CI 状态收集脚本。
-
-  创建 `scripts/collect_ci_status.py`，读取环境变量如 `GITHUB_SHA`、`GITHUB_REF_NAME` 和 `GITHUB_RUN_ID`，然后写入简洁的 Markdown 验证摘要。
-
-  验证：
-
-  ```powershell
-  python scripts/collect_ci_status.py --output test_tmp/verification-summary.md
-  ```
-
-  预期结果：创建 Markdown 文件，在非 GitHub Actions 环境中运行时使用显式未知值。
-
-- [x] 步骤 3：将脚本连接到 CI。
-
-  在 `.github/workflows/ci.yml` 中，在测试后运行脚本并将摘要作为工件上传。
-
-  预期结果：每次 CI 运行生成机器生成的验证摘要。
-
-- [x] 步骤 4：更新报告策略。
-
-  在 `docs/reports/README.md` 中，声明新的完成报告必须引用 CI 运行状态或明确标记为本地验证。
-
----
-
-## 任务 7：完成端到端执行循环
-
-**目的：** 使从工作流创建到执行、恢复、缺陷修复和内存写回的整个过程可观察，并作为一个循环进行测试。
-
-**状态 (2026-05-29)：** ✅ 全部 4 个步骤已通过验证。10 个 e2e 测试 + 69 个单元测试全部通过。
-
-**文件：**
-- 修改：`agentManager/runtime/workflow_coordinator.py`
-- 修改：`agentManager/runtime/task_executor.py`
-- 修改：`agentManager/recovery/recovery_engine.py`
-- 修改：`agentManager/defect_repair/repair_pipeline.py`
-- 修改：`agentManager/memory/engineering_memory.py`
-- 修改：`agentManager/engine/event_bus.py`
-- 测试：`tests/e2e/test_runtime_workflow_loop.py`
-- 添加或修改：`tests/e2e/test_execution_recovery_memory_loop.py`
-
-- [x] 步骤 1：为成功的工作流执行编写端到端测试。
-
-  测试应创建小型 DAG、分发就绪任务、通过 `TaskExecutor` 执行它们、发布事件、更新状态、检查点输出，并写入内存记录。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/e2e/test_runtime_workflow_loop.py -v --no-cov
-  ```
-
-  **结果：** ✅ 2 个测试通过（成功/失败工作流执行）
-
-- [x] 步骤 2：为恢复路径执行编写端到端测试。
-
-  添加 `tests/e2e/test_execution_recovery_memory_loop.py`，覆盖失败任务触发恢复、记录恢复事件并写入持久化工程内存条目的场景。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/e2e/test_execution_recovery_memory_loop.py -v --no-cov
-  ```
-
-  **结果：** ✅ 4 个测试通过（恢复引擎、事件重放、缺陷修复、内存写回）
-
-- [x] 步骤 3：将缺陷修复连接为可选的恢复策略。
-
-  确保 `RecoveryEngine` 仅在分类表明可修复缺陷且工作流策略允许时调用 `repair_pipeline`。
-
-  验证：
-
-  ```powershell
-  python -m pytest tests/unit/test_recovery_engine.py tests/test_defect_repair.py -v --no-cov
-  ```
-
-  **结果：** ✅ 69 个测试通过（defect_repair 集成已验证）
-
-- [x] 步骤 4：验证组合的运行时路径。
-
-  ```powershell
-  python -m pytest tests/e2e/ -v --no-cov
-  ```
-
-  **结果：** ✅ 10/10 e2e 测试通过（成功循环和恢复循环均通过，无需外部服务）
-
----
-
-## 任务 8：添加生产安全和可观测性
-
-**目的：** 添加安全操作和诊断系统所需的最低生产控制。
-
-**状态 (2026-05-30)：** ✅ 已添加最低生产控制：可配置日志级别/JSON 日志、`X-Request-ID`
-请求关联 ID、结构化审计事件助手、默认禁用的 tracing 钩子，以及生产环境变量示例。
-Prometheus 已保持现有 `/metrics` 抓取配置，无需变更。
-
-**文件：**
-- 修改：`agentManager/config/settings.py`
-- 修改：`agentManager/api.py`
-- 修改：`agentManager/runtime/workflow_coordinator.py`
-- 修改：`agentManager/engine/event_bus.py`
-- 添加：`agentManager/observability/__init__.py`
-- 添加：`agentManager/observability/logging.py`
-- 添加：`agentManager/observability/tracing.py`
-- 添加：`agentManager/observability/audit.py`
-- 检查：`monitoring/prometheus.yml`
-- 修改：`.env.prod.example`
 - 修改：`README.md`
-- 测试：`tests/unit/test_settings.py`
-- 添加：`tests/unit/test_observability.py`
 
-- [x] 步骤 1：添加结构化日志配置。
+- [ ] **P0-2.1：将 README.md 第 488 行 "production-ready monitoring" 改为准确表述**
 
-  添加日志级别、JSON 日志输出和请求/工作流关联 ID 的设置。
+  改为类似："具备生产化观测的最小基础设施，但项目整体仍为 prototype 阶段。缺口包括：真实 OTEL exporter 端到端验证、日志采集链路、告警规则、仪表盘、审计落库策略、SLO、压测、故障演练。"
 
-  验证：
+  验证：`git diff README.md` 确认表述一致
 
-  ```powershell
-  python -m pytest tests/unit/test_settings.py -v --no-cov
+### P0-3：修复 middleware 异常路径 context 泄漏
+
+**目的：** 确保 request context 在异常路径也能清理
+
+**文件：**
+- 修改：`agentManager/api.py`
+- 测试：`tests/unit/test_api.py`
+
+- [ ] **P0-3.1：用 try/finally 包裹 middleware**
+
+  将 [api.py:52-59](file:///h:/AllProject/agentManager/agentManager/api.py#L52-L59) 的 `request_correlation_middleware` 改为：
+  ```python
+  @app.middleware("http")
+  async def request_correlation_middleware(request: Request, call_next):
+      req_id = request.headers.get("X-Request-ID") or new_request_id()
+      set_request_context(request_id=req_id)
+      try:
+          response = await call_next(request)
+          response.headers["X-Request-ID"] = req_id
+          return response
+      finally:
+          clear_request_context()
   ```
 
-- [x] 步骤 2：添加审计事件助手。
+- [ ] **P0-3.2：添加 middleware 异常路径测试**
 
-  创建 `agentManager/observability/audit.py`，包含安全敏感事件的助手：工作流创建、任务执行、沙箱拒绝、恢复升级和配置验证失败。
+  编写测试验证：当下游处理抛异常时，request context 仍被清理
 
-  验证：
+  验证：`python -m pytest tests/unit/test_api.py -v --no-cov`
 
-  ```powershell
-  python -m pytest tests/unit/test_observability.py -v --no-cov
-  ```
+### P0-4：修复 RecoveryStrategy 选择逻辑
 
-- [x] 步骤 3：在配置后添加 OpenTelemetry 追踪钩子。
+**目的：** 让 defect repair 策略选择符合预期语义
 
-  创建 `agentManager/observability/tracing.py`，默认保持追踪禁用以支持本地开发。当前钩子覆盖工作流协调、任务执行和恢复；后续导出器接入和更细粒度检查点/内存写入 span 作为增量工作处理。
+**文件：**
+- 修改：`agentManager/runtime/workflow_coordinator.py`
+- 修改：`agentManager/recovery/recovery_engine.py`（如需）
+- 测试：`tests/e2e/test_runtime_workflow_loop.py`
+- 测试：`tests/unit/test_recovery_engine.py`
 
-  验证：
+- [ ] **P0-4.1：修复 _recover_failed_task 中的 strategy 覆盖逻辑**
 
-  ```powershell
-  python -m pytest tests/unit/test_observability.py tests/unit/test_task_executor.py tests/unit/test_recovery_engine.py -v --no-cov
-  ```
+  将 [workflow_coordinator.py:214-217](file:///h:/AllProject/agentManager/agentManager/runtime/workflow_coordinator.py#L214-L217) 的逻辑改为：
+  1. `error_classifier.classify(error)` 返回 `(failure_type, strategy)`
+  2. 只有当 `failure_type` 是可修复类型（如 RUNTIME）且 `repair_pipeline` 存在且 workflow policy 允许时，才将 strategy 改为 DEFECT_REPAIR
+  3. 不可修复错误（如 SYNTAX、UNKNOWN）不得进入 repair
+  4. 添加 `allow_defect_repair` 参数到 `WorkflowCoordinator.__init__`，默认 True，允许 workflow 级别禁用
 
-- [x] 步骤 4：审查 Prometheus 配置。
+- [ ] **P0-4.2：添加 strategy 选择测试**
 
-  仅在抓取目标或指标路径更改时更新 `monitoring/prometheus.yml`。
+  编写测试覆盖：
+  - 不可修复错误（SYNTAX）不进入 DEFECT_REPAIR
+  - policy 禁用 repair 时不进入 DEFECT_REPAIR
+  - repair_pipeline 为 None 时不进入 DEFECT_REPAIR
+  - 可修复错误 + repair_pipeline 存在 + policy 允许 → 进入 DEFECT_REPAIR
+  - repair 失败后走 fallback / terminal failure
 
-  验证：
+  验证：`python -m pytest tests/unit/test_recovery_engine.py tests/e2e/test_runtime_workflow_loop.py -v --no-cov`
 
-  ```powershell
-  python -m pytest tests/unit/test_api.py -v --no-cov
-  ```
+### P0-5：CI 质量门禁收紧
 
-- [x] 步骤 5：更新生产环境示例。
+**目的：** 让 CI 真正能阻断低质量合并
 
-  向 `.env.prod.example` 添加必需的安全和可观测性变量，但不在文件中放入真实密钥。
+**文件：**
+- 修改：`.github/workflows/ci.yml`
 
-  验证：
+- [ ] **P0-5.1：flake8 扩展到 tests/ 目录**
 
-  ```powershell
-  git diff --check
-  ```
+  将 `flake8 agentManager/` 改为 `flake8 agentManager/ tests/ --max-line-length=100 --count --statistics`
+
+- [ ] **P0-5.2：mypy 对核心模块非 advisory**
+
+  添加独立的 mypy job，对 `agentManager/runtime/`、`agentManager/storage/`、`agentManager/config/` 运行 mypy，失败时阻断合并（不用 `|| true`）
+
+- [ ] **P0-5.3：coverage threshold 在主版本 Python 强制**
+
+  将 coverage `fail-under=80` 从仅 Python 3.10 扩展到 Python 3.12（当前主验证版本）
+
+- [ ] **P0-5.4：添加 durable backend integration job**
+
+  在 CI 中添加使用 Postgres + Redis service 的集成测试 job，运行 `pytest tests/unit/test_storage_backends.py tests/unit/test_state_manager.py tests/unit/test_checkpoint.py tests/unit/test_redis_stream_event_bus.py -v --no-cov`
+
+  验证：CI 运行结果
 
 ---
 
-## 最终验证矩阵
+## P1：把 durable backend 接入主路径
 
-在标记完整计划完成前运行这些命令：
+### P1-1：引入 RuntimeFactory
+
+**目的：** API 不再直接模块级创建全局 in-memory 对象，改为根据配置选择后端
+
+**文件：**
+- 添加：`agentManager/runtime/factory.py`
+- 修改：`agentManager/api.py`
+- 修改：`agentManager/config/settings.py`
+- 测试：`tests/unit/test_runtime_factory.py`
+
+- [ ] **P1-1.1：创建 RuntimeFactory**
+
+  创建 `agentManager/runtime/factory.py`，提供：
+  - `create_state_machine(settings)` — 根据 DATABASE_URL 返回 PostgresStateRepository 包装的 StateMachine 或内存 StateMachine
+  - `create_event_bus(settings)` — 根据 REDIS_URL 返回 RedisStreamEventBus 或内存 EventBus
+  - `create_checkpoint_manager(settings)` — 根据 OBJECT_STORE_ENDPOINT 返回对象存储 CheckpointManager 或本地文件 CheckpointManager
+  - `create_memory_system(settings)` — 根据 VECTOR_BACKEND 返回 Qdrant 向量后端或 SQLite 后端的 MemorySystem
+
+- [ ] **P1-1.2：重构 api.py 使用 RuntimeFactory**
+
+  将 [api.py:62-65](file:///h:/AllProject/agentManager/agentManager/api.py#L62-L65) 的模块级全局对象改为通过 RuntimeFactory 创建：
+  ```python
+  from agentManager.runtime.factory import create_runtime
+  runtime = create_runtime()
+  dag_engine = runtime.dag_engine
+  state_machine = runtime.state_machine
+  event_bus = runtime.event_bus
+  scheduler = runtime.scheduler
+  ```
+
+- [ ] **P1-1.3：添加 RuntimeFactory 测试**
+
+  测试覆盖：
+  - 无环境变量时创建内存后端
+  - 有 DATABASE_URL 时创建 Postgres 后端（mock）
+  - 有 REDIS_URL 时创建 Redis 后端（mock）
+  - 有 OBJECT_STORE_ENDPOINT 时创建对象存储后端（mock）
+
+  验证：`python -m pytest tests/unit/test_runtime_factory.py -v --no-cov`
+
+### P1-2：StateManager 持久化集成
+
+**目的：** 工作流状态和任务运行状态可持久化到 PostgreSQL
+
+**文件：**
+- 修改：`agentManager/engine/state_manager.py`
+- 测试：`tests/unit/test_state_manager.py`
+
+- [ ] **P1-2.1：StateMachine 支持 StateRepository 后端**
+
+  修改 StateMachine，使其可选地委托给 StateRepository：
+  - `transition()` 同时写内存和持久化
+  - `get_state()` 优先从内存读取，miss 时从持久化读取
+  - 新增 `from_repository(repo)` 工厂方法
+
+- [ ] **P1-2.2：添加持久化 StateManager 测试**
+
+  验证：`python -m pytest tests/unit/test_state_manager.py -v --no-cov`
+
+### P1-3：CheckpointManager 持久化集成
+
+**目的：** 检查点可写入对象存储
+
+**文件：**
+- 修改：`agentManager/engine/checkpoint.py`
+- 测试：`tests/unit/test_checkpoint.py`
+
+- [ ] **P1-3.1：CheckpointManager 支持 ObjectStore 后端**
+
+  修改 CheckpointManager，使其可选地委托给 ObjectStore：
+  - `save_checkpoint()` 同时写本地和对象存储
+  - `load_checkpoint()` 优先从本地读取，miss 时从对象存储读取
+  - 新增 `from_object_store(store)` 工厂方法
+
+- [ ] **P1-3.2：添加持久化 CheckpointManager 测试**
+
+  验证：`python -m pytest tests/unit/test_checkpoint.py -v --no-cov`
+
+### P1-4：MemorySystem 持久化集成
+
+**目的：** 内存系统支持非 SQLite 后端
+
+**文件：**
+- 修改：`agentManager/memory/memory_system.py`
+- 修改：`agentManager/memory/memory_backend.py`
+- 测试：`tests/unit/memory/test_memory_system.py`
+
+- [ ] **P1-4.1：MemorySystem 支持可插拔后端**
+
+  修改 [memory_system.py:95](file:///h:/AllProject/agentManager/agentManager/memory/memory_system.py#L95) 的 `if storage_backend != "sqlite"` 限制，支持 "qdrant" 等后端
+
+- [ ] **P1-4.2：添加持久化 MemorySystem 测试**
+
+  验证：`python -m pytest tests/unit/memory/ -v --no-cov`
+
+### P1-5：Compose 环境集成测试
+
+**目的：** 在 Compose 环境下跑 Postgres + Redis + MinIO/Qdrant 的集成测试
+
+**文件：**
+- 添加：`tests/e2e/test_persistent_backends.py`
+- 修改：`docker-compose.yml`（如需添加 test service）
+
+- [ ] **P1-5.1：编写持久化后端集成测试**
+
+  测试覆盖：
+  - 完整的持久化工作流执行
+  - 状态恢复（重启后状态不丢失）
+  - 检查点恢复
+  - 内存持久化和检索
+
+- [ ] **P1-5.2：在 CI 中添加集成测试 job**
+
+  使用 Postgres + Redis + MinIO service 运行集成测试
+
+  验证：`python -m pytest tests/e2e/test_persistent_backends.py -v --no-cov`
+
+### P1-6：README 写清楚三种运行模式
+
+**目的：** 明确 prototype / production-ready / production-oriented 的边界
+
+**文件：**
+- 修改：`README.md`
+
+- [ ] **P1-6.1：在 README 中添加运行模式说明**
+
+  三种模式：
+  1. **local memory**（默认）— 所有状态在内存，适合开发和测试
+  2. **local durable** — SQLite + 本地文件，适合单机长期运行
+  3. **production-like** — Postgres + Redis + 对象存储 + Qdrant，需要 Docker Compose
+
+  验证：`git diff README.md`
+
+---
+
+## P2：生产安全与观测深化
+
+### P2-1：OTEL exporter 端到端验证
+
+**目的：** 从"配置存在"变成"可实际接入 collector"
+
+**文件：**
+- 修改：`agentManager/observability/tracing.py`
+- 添加：`monitoring/otel-collector-config.yml`
+- 测试：`tests/unit/test_observability.py`
+
+- [ ] **P2-1.1：添加 OTEL 采样率配置**
+
+  在 `setup_tracing()` 中添加 `OTEL_TRACING_SAMPLE_RATE` 环境变量支持
+
+- [ ] **P2-1.2：添加 OTLP HTTP 导出器选项**
+
+  当前只有 gRPC 导出器，添加 HTTP 导出器选项（`OTEL_EXPORTER_OTLP_PROTOCOL`）
+
+- [ ] **P2-1.3：添加 OTEL Collector 配置文件**
+
+  创建 `monitoring/otel-collector-config.yml`，配置接收 OTLP 并导出到 Jaeger/Zipkin
+
+- [ ] **P2-1.4：添加更细粒度 span 覆盖**
+
+  扩展 span 覆盖到：
+  - 检查点写入/读取
+  - 内存操作
+  - 沙箱执行
+  - 缺陷修复流水线
+
+  验证：`python -m pytest tests/unit/test_observability.py -v --no-cov`
+
+### P2-2：审计事件落库策略
+
+**目的：** 审计事件不只是写日志，还要有明确落库位置
+
+**文件：**
+- 修改：`agentManager/observability/audit.py`
+- 测试：`tests/unit/test_observability.py`
+
+- [ ] **P2-2.1：审计事件支持多输出**
+
+  修改 `record_audit_event()`，支持同时输出到：
+  - 日志（当前行为）
+  - PostgreSQL audit_record 表（通过 StateRepository）
+  - 对象存储（长期归档）
+
+  通过 `AUDIT_SINK` 环境变量配置：`log`（默认）、`log,db`、`log,db,object_store`
+
+- [ ] **P2-2.2：添加审计落库测试**
+
+  验证：`python -m pytest tests/unit/test_observability.py -v --no-cov`
+
+### P2-3：Prometheus 告警规则
+
+**目的：** 从"指标存在"变成"有基础告警"
+
+**文件：**
+- 添加：`monitoring/alerts.yml`
+- 修改：`monitoring/prometheus.yml`
+
+- [ ] **P2-3.1：添加基础告警规则**
+
+  添加告警：
+  - 高错误率（errors_total / tasks_total > 阈值）
+  - 任务执行超时
+  - 沙箱拒绝次数异常
+  - 恢复升级次数异常
+
+- [ ] **P2-3.2：更新 Prometheus 配置引用告警规则**
+
+  验证：`docker compose config`（如果 Docker 可用）
+
+### P2-4：WorkerSandbox 真实 Docker 集成测试
+
+**目的：** 不只 mock，还要有真实 Docker 环境下的集成测试
+
+**文件：**
+- 添加：`tests/integration/test_sandbox_docker.py`
+- 修改：`pyproject.toml`（添加 integration 标记）
+
+- [ ] **P2-4.1：编写真实 Docker 环境下的沙箱测试**
+
+  测试覆盖：
+  - 容器创建和启动
+  - 命令执行和输出分离
+  - 超时清理
+  - 工作空间隔离
+  - 网络隔离
+
+  标记为 `@pytest.mark.integration`，需要 Docker 环境
+
+- [ ] **P2-4.2：在 CI 中添加集成测试 job（条件运行）**
+
+  仅在有 Docker 的 runner 上运行
+
+  验证：`python -m pytest tests/integration/ -v --no-cov -m integration`
+
+---
+
+## P3：执行闭环语义深化
+
+### P3-1：memory write-back 真实实现
+
+**目的：** WorkflowCoordinator 构造参数里没有 memory backend，memory write-back 缺少真实实现
+
+**文件：**
+- 修改：`agentManager/runtime/workflow_coordinator.py`
+- 修改：`agentManager/memory/engineering_memory.py`
+- 测试：`tests/e2e/test_execution_recovery_memory_loop.py`
+
+- [ ] **P3-1.1：WorkflowCoordinator 接受可选 memory_backend 参数**
+
+  在 `__init__` 中添加 `memory_backend: Optional[Any] = None`
+
+- [ ] **P3-1.2：任务完成后写入 engineering memory**
+
+  在 `_execute_scheduled_task` 成功路径中，如果 `memory_backend` 存在，写入执行结果
+
+- [ ] **P3-1.3：添加 memory write-back 测试**
+
+  验证：`python -m pytest tests/e2e/test_execution_recovery_memory_loop.py -v --no-cov`
+
+### P3-2：resume from checkpoint 测试
+
+**目的：** 验证从检查点恢复工作流的完整路径
+
+**文件：**
+- 添加：`tests/e2e/test_checkpoint_resume.py`
+
+- [ ] **P3-2.1：编写从检查点恢复的端到端测试**
+
+  测试覆盖：
+  - 工作流执行到一半崩溃
+  - 从检查点恢复
+  - 验证已完成任务不重复执行
+  - 验证未完成任务继续执行
+
+  验证：`python -m pytest tests/e2e/test_checkpoint_resume.py -v --no-cov`
+
+### P3-3：workflow crash/restart 后恢复测试
+
+**目的：** 验证工作流崩溃重启后的状态恢复
+
+**文件：**
+- 添加：`tests/e2e/test_workflow_crash_recovery.py`
+
+- [ ] **P3-3.1：编写工作流崩溃恢复的端到端测试**
+
+  测试覆盖：
+  - 工作流执行中模拟崩溃
+  - 重新创建 WorkflowCoordinator
+  - 从持久化状态恢复
+  - 验证工作流可继续执行
+
+  验证：`python -m pytest tests/e2e/test_workflow_crash_recovery.py -v --no-cov`
+
+---
+
+## 产品能力路线图（独立文档）
+
+TODO.md 后面列出的 agent config、skills/MCP、项目地图、任务 JSON、角色模板、Manager 分解任务、UI 等是下一阶段产品能力，不应该和当前基础设施修复混在一个 taskList 里。
+
+建议单独建 `docs/roadmap/product-agent-platform.md`，按优先级拆：
+
+1. Agent/Profile 配置系统
+2. Skills/MCP 模板库
+3. 项目地图与上下文索引
+4. Manager 任务分解 JSON schema
+5. UI 配置与任务编排
+6. 定时任务/hooks
+
+**当前不做这些。先闭环 P0-P3。**
+
+---
+
+## 验证矩阵
+
+每个 P0/P1 任务完成后运行：
 
 ```powershell
 python -m pytest tests/unit/test_api.py -v --no-cov
 python -m pytest tests/unit/ -v --no-cov
 python -m pytest tests/e2e/ -v --no-cov
-python -m pytest
-python -m flake8 agentManager tests --max-line-length=100 --jobs=1
-git diff --check
-docker compose config
-docker compose build agentmanager
-docker build -f Dockerfile.prod -t agentmanager:prod .
+python -m pytest -q
 ```
 
-预期最终状态：
+全部 P0 完成后额外运行：
 
-- API 测试在 Python 3.11/3.12 中通过。
-- 完整的单元和端到端套件要么通过，要么有明确记录的外部服务跳过。
-- Docker Compose 和生产镜像构建已验证。
-- 持久化后端接口存在并带有单元覆盖。
-- 沙箱强化有直接测试。
-- 新的完成报告与 CI 证据关联。
-- 运行时执行循环覆盖成功和恢复路径。
-- 安全和可观测性设置已文档化并测试。
+```powershell
+python -m flake8 agentManager tests --max-line-length=100 --jobs=1
+git diff --check
+```
+
+P1-5 完成后额外运行（如果 Docker 可用）：
+
+```powershell
+docker compose config
+docker compose build agentmanager
+docker compose up -d
+# 等待 API 就绪后
+python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read().decode())"
+docker compose down
+```
+
+---
 
 ## 建议的提交顺序
 
-1. `test: restore supported api and full-suite verification`
-2. `test: stabilize full e2e validation`
-3. `chore: validate docker compose workflow`
-4. `feat: add durable backend interfaces`
-5. `feat: harden worker sandbox execution`
-6. `chore: generate ci-backed verification reports`
-7. `feat: complete runtime recovery memory loop`
-8. `feat: add production observability controls`
+### P0（先做）
+
+1. `fix: unify docker/compose status description in TODO.md`
+2. `fix: resolve README production-ready wording contradiction`
+3. `fix: middleware context leak on exception path`
+4. `fix: recovery strategy selection logic - add policy gate`
+5. `ci: tighten quality gates - flake8 tests/, mypy core, coverage matrix`
+
+### P1（P0 完成后）
+
+6. `feat: add RuntimeFactory for backend selection`
+7. `refactor: api.py use RuntimeFactory instead of module-level globals`
+8. `feat: StateMachine supports StateRepository backend`
+9. `feat: CheckpointManager supports ObjectStore backend`
+10. `feat: MemorySystem supports pluggable backends`
+11. `test: add persistent backend integration tests`
+12. `docs: add three runtime modes to README`
+
+### P2（P1 完成后）
+
+13. `feat: add OTEL sampling rate and HTTP exporter option`
+14. `feat: add audit event multi-sink support`
+15. `feat: add Prometheus alert rules`
+16. `test: add real Docker sandbox integration tests`
+
+### P3（P2 完成后）
+
+17. `feat: WorkflowCoordinator accepts memory_backend parameter`
+18. `test: add checkpoint resume e2e tests`
+19. `test: add workflow crash/restart recovery e2e tests`
