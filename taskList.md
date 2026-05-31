@@ -75,7 +75,7 @@
 **文件：**
 - 修改：`TODO.md`
 
-- [ ] **P0-1.1：更新 TODO.md Docker/Compose 状态**
+- [x] **P0-1.1：更新 TODO.md Docker/Compose 状态** (✅ 已完成)
 
   将 TODO.md 第 48-49 行的"剩余障碍"更新为准确描述：
   - Compose 配置和 Dockerfile 已静态验证
