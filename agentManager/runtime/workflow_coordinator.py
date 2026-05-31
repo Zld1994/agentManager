@@ -1,20 +1,22 @@
 """Runtime workflow coordinator.
 
 Connects DAG readiness, scheduler dispatch, task execution, task lifecycle
-events, state transitions, checkpoint persistence, and final workflow outcome.
+events, state transitions, checkpoint persistence, memory write-back, and
+final workflow outcome.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import heapq
 import logging
 
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine, TaskState
+from agentManager.memory.memory_backend import MemoryBackend
 from agentManager.observability.tracing import trace_operation
 from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy, FailureType
-from agentManager.runtime.execution_context import ExecutionContext
+from agentManager.runtime.execution_context import ExecutionContext, ExecutionStatus
 from agentManager.runtime.task_executor import TaskExecutor
 
 logger = logging.getLogger(__name__)
@@ -44,6 +46,7 @@ class WorkflowCoordinator:
         recovery_engine: Any = None,
         max_iterations: int = 1000,
         allow_defect_repair: bool = True,
+        memory_backend: Optional[MemoryBackend] = None,
     ) -> None:
         self.dag_engine = dag_engine
         self.scheduler = scheduler
@@ -53,6 +56,7 @@ class WorkflowCoordinator:
         self.recovery_engine = recovery_engine
         self.max_iterations = max_iterations
         self.allow_defect_repair = allow_defect_repair
+        self.memory_backend = memory_backend
 
     async def run_workflow(self, workflow_id: str) -> WorkflowRunResult:
         """Run workflow tasks until completion/failure or loop guard timeout."""
@@ -181,6 +185,7 @@ class WorkflowCoordinator:
             await self.task_executor.run_task(node)
             self.scheduler.mark_completed(task_id)
             self.dag_engine.update_node_status(task_id, status_enum.COMPLETED)
+            await self._write_task_result_to_memory(task_id, node, "completed")
         except Exception as exc:
             recovered = await self._recover_failed_task(task_id, node, exc)
             if recovered:
@@ -188,10 +193,16 @@ class WorkflowCoordinator:
                 if current_state == TaskState.COMPLETED:
                     self.scheduler.mark_completed(task_id)
                     self.dag_engine.update_node_status(task_id, status_enum.COMPLETED)
+                    await self._write_recovery_result_to_memory(
+                        task_id, node, "recovered_completed"
+                    )
                     return
                 if current_state == TaskState.READY:
                     self._mark_scheduler_pending(task_id)
                     self.dag_engine.update_node_status(task_id, status_enum.PENDING)
+                    await self._write_recovery_result_to_memory(
+                        task_id, node, "recovered_retry"
+                    )
                     return
                 logger.warning(
                     "Recovery for task %s did not produce a runnable or "
@@ -308,3 +319,114 @@ class WorkflowCoordinator:
                 workflow_id,
                 exc,
             )
+
+    async def _write_record_to_memory(
+        self,
+        task_id: str,
+        node: Any,
+        record_type: str,
+        outcome: str,
+        key_prefix: str,
+        extra_fields: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Best-effort write of a task or recovery record to memory backend."""
+        if self.memory_backend is None:
+            return
+
+        workflow_id = node.metadata.get("workflow_id", "unknown")
+        record: Dict[str, Any] = {
+            "type": record_type,
+            "task_id": task_id,
+            "workflow_id": workflow_id,
+            "outcome": outcome,
+            "tags": [key_prefix, outcome],
+            **(extra_fields or {}),
+        }
+
+        try:
+            await self.memory_backend.put(
+                namespace=workflow_id,
+                key=f"{key_prefix}:{task_id}:{outcome}",
+                value=record,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Memory write-back failed for task %s: %s", task_id, exc
+            )
+
+    async def _write_task_result_to_memory(
+        self,
+        task_id: str,
+        node: Any,
+        outcome: str,
+    ) -> None:
+        """Best-effort write of task execution result to memory backend."""
+        context = self.task_executor.get_execution_context(task_id)
+        extra: Dict[str, Any] = {}
+        if context is not None:
+            extra["duration"] = context.get_duration()
+            extra["retry_count"] = context.retry_count
+            if context.result:
+                extra["result_keys"] = list(context.result.keys())
+        await self._write_record_to_memory(
+            task_id, node, "task_execution", outcome, "task", extra
+        )
+
+    async def _write_recovery_result_to_memory(
+        self,
+        task_id: str,
+        node: Any,
+        outcome: str,
+    ) -> None:
+        """Best-effort write of recovery result to memory backend."""
+        await self._write_record_to_memory(
+            task_id, node, "task_recovery", outcome, "recovery"
+        )
+
+    async def resume_workflow(self, workflow_id: str) -> WorkflowRunResult:
+        """Resume a workflow from checkpoint and persisted state.
+
+        Restores completed task statuses from checkpoint data, then runs
+        the remaining incomplete tasks through the normal execution loop.
+        """
+        self._register_missing_tasks()
+        await self._restore_completed_tasks_from_checkpoints()
+
+        return await self.run_workflow(workflow_id)
+
+    async def _restore_completed_tasks_from_checkpoints(self) -> None:
+        """Mark tasks as completed if their checkpoint indicates success."""
+        for task_id, task in self.scheduler.tasks.items():
+            if task.status in {"completed", "failed"}:
+                continue
+
+            try:
+                checkpoint = await self.task_executor.checkpoint_manager.load_checkpoint(
+                    task_id
+                )
+            except Exception:
+                continue
+
+            if checkpoint is None:
+                continue
+
+            if checkpoint.status is None:
+                continue
+
+            if checkpoint.status == ExecutionStatus.COMPLETED:
+                node = self.dag_engine.get_node(task_id)
+                if node is not None:
+                    status_enum = node.status.__class__
+                    self.dag_engine.update_node_status(
+                        task_id, status_enum.COMPLETED
+                    )
+                self.scheduler.mark_completed(task_id)
+                current = self.state_machine.get_state(task_id)
+                if current != TaskState.COMPLETED:
+                    self.state_machine.transition(
+                        task_id, TaskState.COMPLETED, "Restored from checkpoint"
+                    )
+                if node is not None:
+                    await self._write_task_result_to_memory(
+                        task_id, node, "restored"
+                    )

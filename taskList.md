@@ -413,62 +413,82 @@
 
 ---
 
-## P3：执行闭环语义深化
+## P3：执行闭环语义深化 ✅ 已完成
 
-### P3-1：memory write-back 真实实现
+### P3-1：memory write-back 真实实现 ✅
 
 **目的：** WorkflowCoordinator 构造参数里没有 memory backend，memory write-back 缺少真实实现
 
 **文件：**
 - 修改：`agentManager/runtime/workflow_coordinator.py`
-- 修改：`agentManager/memory/engineering_memory.py`
-- 测试：`tests/e2e/test_execution_recovery_memory_loop.py`
+- 修改：`agentManager/runtime/factory.py`
+- 测试：`tests/e2e/test_workflow_resume_and_memory.py`
 
-- [ ] **P3-1.1：WorkflowCoordinator 接受可选 memory_backend 参数**
+- [x] **P3-1.1：WorkflowCoordinator 接受可选 memory_backend 参数** (✅ 已完成 — 改进方案)
 
-  在 `__init__` 中添加 `memory_backend: Optional[Any] = None`
+  使用 `Optional[MemoryBackend]` 而非 `Optional[Any]`，类型安全且可维护
 
-- [ ] **P3-1.2：任务完成后写入 engineering memory**
+- [x] **P3-1.2：任务完成后写入 engineering memory** (✅ 已完成)
 
-  在 `_execute_scheduled_task` 成功路径中，如果 `memory_backend` 存在，写入执行结果
+  在 `_execute_scheduled_task` 成功路径和恢复成功路径中自动写入 memory，best-effort 语义
+  - 新增 `_write_task_result_to_memory()` 方法
+  - 新增 `_write_recovery_result_to_memory()` 方法
 
-- [ ] **P3-1.3：添加 memory write-back 测试**
+- [x] **P3-1.3：RuntimeFactory 自动注入 memory_backend** (✅ 已完成 — 新增)
 
-  验证：`python -m pytest tests/e2e/test_execution_recovery_memory_loop.py -v --no-cov`
+  新增 `_create_engineering_memory()` 工厂函数，Runtime dataclass 新增 `engineering_memory` 字段
 
-### P3-2：resume from checkpoint 测试
+- [x] **P3-1.4：添加 memory write-back 测试** (✅ 已完成)
+
+  4 个测试覆盖：任务完成写回、恢复成功写回、无 backend 时不写回、best-effort 容错
+
+  验证：`python -m pytest tests/e2e/test_workflow_resume_and_memory.py -v --no-cov`
+
+### P3-2：resume from checkpoint ✅
 
 **目的：** 验证从检查点恢复工作流的完整路径
 
 **文件：**
-- 添加：`tests/e2e/test_checkpoint_resume.py`
+- 修改：`agentManager/runtime/workflow_coordinator.py`
+- 测试：`tests/e2e/test_workflow_resume_and_memory.py`
 
-- [ ] **P3-2.1：编写从检查点恢复的端到端测试**
+- [x] **P3-2.1：实现 resume_workflow 方法** (✅ 已完成 — 改进方案)
 
-  测试覆盖：
-  - 工作流执行到一半崩溃
-  - 从检查点恢复
-  - 验证已完成任务不重复执行
-  - 验证未完成任务继续执行
+  原方案只写测试不添加能力，改为先实现 `resume_workflow()` 方法：
+  - 从 checkpoint 恢复已完成任务的状态
+  - 跳过已完成任务
+  - 继续执行未完成任务
+  - 新增 `_restore_completed_tasks_from_checkpoints()` 私有方法
 
-  验证：`python -m pytest tests/e2e/test_checkpoint_resume.py -v --no-cov`
+- [x] **P3-2.2：编写从检查点恢复的端到端测试** (✅ 已完成)
 
-### P3-3：workflow crash/restart 后恢复测试
+  3 个测试覆盖：
+  - 已完成任务不重复执行
+  - 未完成任务继续执行
+  - 无 checkpoint 时正常运行所有任务
+
+  验证：`python -m pytest tests/e2e/test_workflow_resume_and_memory.py -v --no-cov`
+
+### P3-3：workflow crash/restart 后恢复 ✅
 
 **目的：** 验证工作流崩溃重启后的状态恢复
 
 **文件：**
-- 添加：`tests/e2e/test_workflow_crash_recovery.py`
+- 测试：`tests/e2e/test_workflow_resume_and_memory.py`
 
-- [ ] **P3-3.1：编写工作流崩溃恢复的端到端测试**
+- [x] **P3-3.1：编写工作流崩溃恢复的端到端测试** (✅ 已完成 — 改进方案)
 
-  测试覆盖：
-  - 工作流执行中模拟崩溃
-  - 重新创建 WorkflowCoordinator
-  - 从持久化状态恢复
-  - 验证工作流可继续执行
+  原方案独立测试文件，改为统一到 `test_workflow_resume_and_memory.py`：
+  - 崩溃后从新 StateMachine + 持久化 checkpoint 恢复
+  - 运行中任务崩溃后重新执行
+  - 恢复时同时写入 memory backend
 
-  验证：`python -m pytest tests/e2e/test_workflow_crash_recovery.py -v --no-cov`
+  3 个测试覆盖：
+  - 从持久化状态恢复（已完成任务不重复执行）
+  - 运行中任务崩溃后重新执行
+  - 崩溃恢复 + memory write-back
+
+  验证：`python -m pytest tests/e2e/test_workflow_resume_and_memory.py -v --no-cov`
 
 ---
 
@@ -551,9 +571,10 @@ docker compose down
 
 ### P3（P2 完成后）
 
-17. `feat: WorkflowCoordinator accepts memory_backend parameter`
-18. `test: add checkpoint resume e2e tests`
-19. `test: add workflow crash/restart recovery e2e tests`
+17. `feat: WorkflowCoordinator accepts MemoryBackend parameter with auto write-back`
+18. `feat: RuntimeFactory injects EngineeringMemory for workflow write-back`
+19. `feat: add resume_workflow method to WorkflowCoordinator`
+20. `test: add unified P3 e2e tests for memory write-back, checkpoint resume, and crash recovery`
 
 ---
 
@@ -569,3 +590,12 @@ docker compose down
 - `python -m pytest tests/unit/test_api.py -v --no-cov` - 30 个通过
 - `python -m pytest tests/unit/test_recovery_engine.py -v --no-cov` - 43 个通过
 - `python -m pytest tests/unit/test_task_executor.py tests/unit/test_domain_models.py -v --no-cov` - 44 个通过
+
+**P3 任务全部完成 (2026-06-01)**：
+- P3-1: Memory write-back 真实实现（类型安全 MemoryBackend + 自动 write-back + RuntimeFactory 注入）
+- P3-2: Resume from checkpoint（实现 resume_workflow 方法 + 端到端测试）
+- P3-3: Workflow crash/restart 恢复（统一测试覆盖崩溃恢复场景）
+
+**P3 测试验证结果**：
+- `python -m pytest tests/e2e/test_workflow_resume_and_memory.py -v --no-cov` - 10 个通过
+- `python -m pytest -q --no-cov` - 652 通过，12 跳过

@@ -63,7 +63,7 @@
 
 1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。✅
 2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。✅ 已通过 RuntimeFactory 完成。
-3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。
+3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。✅ 已通过 WorkflowCoordinator memory write-back 和 resume_workflow 完成。
 4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 已完成基础框架
 
 ## 待处理的优化问题
@@ -160,3 +160,19 @@
 
 **验证完成 (2026-05-31)**:
 - `python -m pytest tests/unit/test_observability.py -v --no-cov` - 46 个通过
+
+✅ **P3 已完成 (2026-06-01)**:
+- P3-1: Memory write-back 真实实现 — WorkflowCoordinator 接受 `Optional[MemoryBackend]` 参数（类型安全，非 `Any`），任务完成和恢复成功时自动写入 engineering memory，best-effort 语义（失败不影响主流程）
+- P3-1 改进: RuntimeFactory 自动注入 EngineeringMemory — 新增 `_create_engineering_memory()` 工厂函数，Runtime dataclass 新增 `engineering_memory` 字段
+- P3-2: Resume from checkpoint — WorkflowCoordinator 新增 `resume_workflow()` 方法，从 checkpoint 恢复已完成任务状态，跳过已完成任务，继续执行未完成任务
+- P3-3: Workflow crash/restart 恢复 — `resume_workflow()` 支持从新 StateMachine 实例恢复，配合持久化 checkpoint 实现崩溃后恢复
+- 统一测试文件 `tests/e2e/test_workflow_resume_and_memory.py`，覆盖 memory write-back（4 个测试）、checkpoint resume（3 个测试）、crash recovery（3 个测试）
+
+**P3 方案优化说明**:
+- 原方案 P3-1 使用 `Optional[Any]`，改为 `Optional[MemoryBackend]`（类型安全）
+- 原方案 P3-2/P3-3 只写测试不添加能力，改为先实现 `resume_workflow()` 方法再写测试
+- 原方案 3 个独立测试文件，改为 1 个统一测试文件减少重复 harness 代码
+
+**验证完成 (2026-06-01)**:
+- `python -m pytest tests/e2e/test_workflow_resume_and_memory.py -v --no-cov` - 10 个通过
+- `python -m pytest -q --no-cov` - 652 通过，12 跳过

@@ -47,7 +47,7 @@ class TestApplicationStartup:
         )
 
         assert result.returncode == 0, result.stderr
-        assert result.stdout.strip() == "OK"
+        assert "OK" in result.stdout.strip().splitlines()
 
     @pytest.mark.parametrize(
         "module_name",

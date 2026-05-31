@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from agentManager.config.settings import get_durable_backend_settings
 from agentManager.engine.dag import DAGEngine
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine
+from agentManager.memory.engineering_memory import EngineeringMemory
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,7 @@ class Runtime:
     scheduler: SchedulerEngine
     checkpoint_manager: Any
     memory_system: Any = None
+    engineering_memory: Optional[EngineeringMemory] = None
 
 
 def _create_state_machine(settings: dict[str, str]) -> StateMachine:
@@ -160,6 +162,31 @@ def _create_memory_system(settings: dict[str, str]) -> Any:
     return MemorySystem(storage_backend="sqlite")
 
 
+def _create_engineering_memory(settings: dict[str, str]) -> Optional[EngineeringMemory]:
+    """Create an EngineeringMemory backend for workflow write-back.
+
+    Uses the same vector_backend setting as MemorySystem. When Qdrant is
+    configured, the engineering memory delegates vector search to it.
+    Otherwise falls back to the default SQLite-backed vector search.
+
+    Note: Unlike other _create_* functions that read from *settings*,
+    EngineeringMemory.from_settings() reads environment variables directly
+    via get_durable_backend_settings(). This means a custom *settings*
+    dict will not override the vector backend selection for engineering
+    memory. This is intentional: engineering memory is a write-back side
+    channel and follows the deployment-level configuration.
+    """
+    try:
+        return EngineeringMemory.from_settings()
+    except Exception as exc:
+        logger.warning(
+            "Failed to initialise EngineeringMemory, "
+            "memory write-back will be disabled: %s",
+            exc,
+        )
+        return None
+
+
 def create_runtime(
     settings: Optional[dict[str, str]] = None,
     max_concurrent_tasks: int = 10,
@@ -181,6 +208,7 @@ def create_runtime(
     event_bus = _create_event_bus(settings)
     checkpoint_manager = _create_checkpoint_manager(settings)
     memory_system = _create_memory_system(settings)
+    engineering_memory = _create_engineering_memory(settings)
 
     return Runtime(
         dag_engine=DAGEngine(),
@@ -189,6 +217,7 @@ def create_runtime(
         scheduler=SchedulerEngine(max_concurrent_tasks=max_concurrent_tasks),
         checkpoint_manager=checkpoint_manager,
         memory_system=memory_system,
+        engineering_memory=engineering_memory,
     )
 
 
