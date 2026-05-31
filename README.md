@@ -485,7 +485,7 @@ This is a prototype project. Contributions are welcome for:
 
 ## 🔭 Observability
 
-The `agentManager.observability` module provides production-ready monitoring:
+The `agentManager.observability` module provides production-oriented monitoring infrastructure (the project overall is still in prototype phase):
 
 - **Structured Logging** — JSON-formatted logs with request/workflow correlation IDs (`X-Request-ID` header propagated automatically)
 - **OpenTelemetry Tracing** — Opt-in distributed tracing (set `OTEL_ENABLED=true`); zero overhead when disabled

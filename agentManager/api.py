@@ -53,10 +53,12 @@ async def request_correlation_middleware(request: Request, call_next):
     """Attach a correlation ID to every request for log tracing."""
     req_id = request.headers.get("X-Request-ID") or new_request_id()
     set_request_context(request_id=req_id)
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = req_id
-    clear_request_context()
-    return response
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = req_id
+        return response
+    finally:
+        clear_request_context()
 
 # Initialize core engines
 dag_engine = DAGEngine()

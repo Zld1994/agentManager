@@ -13,7 +13,7 @@ from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.observability.tracing import trace_operation
-from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy
+from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy, FailureType
 from agentManager.runtime.execution_context import ExecutionContext
 from agentManager.runtime.task_executor import TaskExecutor
 
@@ -43,6 +43,7 @@ class WorkflowCoordinator:
         state_machine: StateMachine,
         recovery_engine: Any = None,
         max_iterations: int = 1000,
+        allow_defect_repair: bool = True,
     ) -> None:
         self.dag_engine = dag_engine
         self.scheduler = scheduler
@@ -51,6 +52,7 @@ class WorkflowCoordinator:
         self.state_machine = state_machine
         self.recovery_engine = recovery_engine
         self.max_iterations = max_iterations
+        self.allow_defect_repair = allow_defect_repair
 
     async def run_workflow(self, workflow_id: str) -> WorkflowRunResult:
         """Run workflow tasks until completion/failure or loop guard timeout."""
@@ -213,7 +215,16 @@ class WorkflowCoordinator:
 
         failure_type, strategy = self.recovery_engine.error_classifier.classify(error)
         repair_pipeline = getattr(self.recovery_engine, "defect_repair_pipeline", None)
-        if repair_pipeline is not None:
+        
+        # Only use DEFECT_REPAIR strategy when:
+        # 1. Failure type is RUNTIME (repairable)
+        # 2. Defect repair pipeline exists
+        # 3. allow_defect_repair is True
+        if (
+            failure_type == FailureType.RUNTIME
+            and repair_pipeline is not None
+            and self.allow_defect_repair
+        ):
             strategy = RecoveryStrategy.DEFECT_REPAIR
 
         workflow_id = node.metadata.get("workflow_id", "unknown")

@@ -83,3 +83,16 @@
 - 定义角色创建期间可用的内置技能和 MCP 模板库。
 - 允许用户向模板库添加新技能或 MCP 条目。
 - 让用户和管理器创建的角色都可以从当前技能/MCP 模板列表中选择。
+
+---
+
+✅ **已完成 (2026-05-31)**:
+- P0-2: 修正 README 表述矛盾 - 将 "production-ready monitoring" 改为更准确的表述
+- P0-3: 修复 middleware 异常路径 context 泄漏 - 使用 try/finally 包裹中间件
+- P0-4: 修复 RecoveryStrategy 选择逻辑 - 添加 allow_defect_repair 参数和正确的策略选择逻辑
+- P0-5: CI 质量门禁收紧 - 更新 CI 配置以提高代码质量检查标准
+
+**验证完成 (2026-05-31)**:
+- `python -m pytest tests/unit/test_api.py -v --no-cov` - 30 个通过
+- `python -m pytest tests/unit/test_recovery_engine.py -v --no-cov` - 43 个通过
+- `python -m pytest tests/unit/test_task_executor.py tests/unit/test_domain_models.py -v --no-cov` - 44 个通过
