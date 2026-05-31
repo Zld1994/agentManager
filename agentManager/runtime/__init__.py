@@ -8,6 +8,10 @@ from agentManager.runtime.execution_context import (
     ExecutionContext,
     ExecutionStatus,
 )
+from agentManager.runtime.factory import (
+    Runtime,
+    create_runtime,
+)
 from agentManager.runtime.task_executor import (
     TaskExecutor,
     CheckpointManager,
@@ -19,11 +23,13 @@ from agentManager.runtime.workflow_coordinator import (
 )
 
 __all__ = [
+    "CheckpointManager",
     "ExecutionContext",
     "ExecutionStatus",
+    "Runtime",
     "TaskExecutor",
-    "CheckpointManager",
     "WorkerSandbox",
     "WorkflowCoordinator",
     "WorkflowRunResult",
+    "create_runtime",
 ]

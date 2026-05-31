@@ -53,6 +53,7 @@ class ErrorClassifier:
         "key error",
         "index error",
         "zero division",
+        "failed",
     ]
 
     # Strategy recommendations per failure type

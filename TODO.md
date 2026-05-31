@@ -62,7 +62,7 @@
 ## 建议的重构路线图
 
 1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。
-2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。
+2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。✅ 已通过 RuntimeFactory 完成。
 3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。
 4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。
 
@@ -96,3 +96,33 @@
 - `python -m pytest tests/unit/test_api.py -v --no-cov` - 30 个通过
 - `python -m pytest tests/unit/test_recovery_engine.py -v --no-cov` - 43 个通过
 - `python -m pytest tests/unit/test_task_executor.py tests/unit/test_domain_models.py -v --no-cov` - 44 个通过
+
+✅ **P1 已完成 (2026-05-31)**:
+- P1-1: 引入 RuntimeFactory — 创建 `agentManager/runtime/factory.py`，API 不再直接模块级创建全局 in-memory 对象，改为根据配置选择后端
+- P1-2: StateManager 持久化集成 — StateMachine 已支持 repository 参数，RuntimeFactory 正确注入 PostgresStateRepository
+- P1-3: CheckpointManager 持久化集成 — ObjectStoreCheckpointManager 已存在，RuntimeFactory 正确注入 S3ObjectStore
+- P1-4: MemorySystem 持久化集成 — MemorySystem 新增 vector_backend 参数，支持可插拔向量搜索后端（Qdrant/SQLite/InMemory）
+- P1-5: Compose 环境集成测试 — 添加 `tests/e2e/test_persistent_backends.py`，包含 mock 集成测试和 Docker integration 标记测试
+- P1-6: README 写清楚三种运行模式 — 添加 Runtime Modes 表格和说明（local memory / local durable / production-like）
+- 修复 `get_durable_backend_settings()` 中 `redis_url` 默认值从 `redis://localhost:6379/0` 改为空字符串（真正的 opt-in）
+- 修复 `error_classifier` 的 RUNTIME_PATTERNS 增加 "failed" 模式（修复 e2e 测试与 P0-4 策略选择逻辑的一致性）
+- 在 `pyproject.toml` 中注册 `integration` pytest marker
+
+**验证完成 (2026-05-31)**:
+- `python -m pytest tests/unit/test_runtime_factory.py -v --no-cov` - 17 个通过
+- `python -m pytest tests/unit/test_api.py -v --no-cov` - 30 个通过
+- `python -m pytest tests/unit/test_settings.py -v --no-cov` - 17 个通过
+- `python -m pytest tests/unit/memory/ -v --no-cov` - 40 个通过
+- `python -m pytest tests/e2e/test_persistent_backends.py -v --no-cov` - 5 通过，3 跳过
+- `python -m pytest -q --no-cov` - 621 通过，3 跳过
+
+**P1 后续修正 (2026-05-31)**:
+- 问题1：MemorySystem.store() 异步处理 — 使用 asyncio.get_running_loop()，新增 astore()，明确 best-effort 语义
+- 问题2：MemorySystem.search() — 移除 ThreadPoolExecutor 模式，新增 asearch() 异步向量搜索
+- 问题3：RuntimeFactory.memory 构造 — 通过构造函数传入 vector_backend 而非直接赋值
+- 问题4：RuntimeFactory.test_postgres_when_database_url — 重写为真正测试 PostgresStateRepository 注入
+- 问题5：RuntimeFactory.test_in_memory_fallback_on_import_error — 使用 patch.dict(sys.modules) 替代修改 builtins.__import__
+- 问题6：runtime/__init__.py — 导出 Runtime 和 create_runtime 到包级别
+
+**最终验证完成 (2026-05-31)**:
+- `python -m pytest -q --no-cov` - 624 通过，3 跳过

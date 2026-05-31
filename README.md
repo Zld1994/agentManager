@@ -64,10 +64,32 @@ python -m uvicorn agentManager.api:app --host 127.0.0.1 --port 8000
 # ReDoc: http://localhost:8000/redoc
 ```
 
+### Runtime Modes
+
+agentManager supports three runtime modes, selected automatically by the
+`RuntimeFactory` based on environment variables:
+
+| Mode | State | Events | Checkpoints | Memory | When |
+|------|-------|--------|-------------|--------|------|
+| **local memory** (default) | In-memory | In-memory | In-memory | SQLite | No `DATABASE_URL` / `REDIS_URL` set |
+| **local durable** | In-memory | In-memory | In-memory | SQLite + vector backend | `VECTOR_BACKEND=qdrant` |
+| **production-like** | PostgreSQL | Redis Streams | S3/MinIO | SQLite + Qdrant | All env vars set |
+
+**local memory** — All state lives in process memory. Suitable for
+development, testing, and short-lived experiments. Data is lost on restart.
+
+**local durable** — Structured data persists in SQLite while vector search
+delegates to Qdrant (or the built-in Jaccard fallback). Suitable for
+single-machine long-running sessions.
+
+**production-like** — Full durable stack via Docker Compose: PostgreSQL for
+state, Redis Streams for events, S3-compatible storage for checkpoints, and
+Qdrant for vector search. Requires `docker compose up`.
+
 ### Durable Backend Configuration
 
-Local usage still defaults to in-memory state and SQLite-backed memory. Production-oriented
-durability is opt-in through environment variables:
+Local usage defaults to in-memory state and SQLite-backed memory.
+Production-oriented durability is opt-in through environment variables:
 
 ```bash
 DATABASE_URL=postgresql://agentmanager:secret@postgres:5432/agentmanager
@@ -80,6 +102,13 @@ VECTOR_BACKEND=sqlite  # sqlite, memory, or qdrant
 QDRANT_URL=http://qdrant:6333
 QDRANT_API_KEY=...
 ```
+
+The `RuntimeFactory` reads these variables at startup and wires the
+appropriate backend implementations. When a URL is empty or unset, the
+corresponding in-memory or SQLite fallback is used automatically. If a
+durable backend fails to initialise (e.g. Postgres is unreachable), the
+factory logs a warning and falls back to the in-memory default so the API
+remains functional.
 
 `agentManager.storage` exposes the durable repository/object-store interfaces. Unit tests mock
 PostgreSQL, Redis, S3/MinIO, and Qdrant clients, so a live service stack is not required for the

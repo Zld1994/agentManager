@@ -177,7 +177,7 @@ class TestDurableBackendSettings:
             settings = get_durable_backend_settings()
 
         assert settings["database_url"] == ""
-        assert settings["redis_url"] == "redis://localhost:6379/0"
+        assert settings["redis_url"] == ""
         assert settings["object_store_endpoint"] == ""
         assert settings["object_store_bucket"] == ""
         assert settings["object_store_access_key"] == ""

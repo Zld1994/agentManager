@@ -80,7 +80,7 @@ def get_durable_backend_settings() -> dict[str, str]:
     """Get opt-in durable backend settings from environment variables."""
     return {
         "database_url": os.getenv("DATABASE_URL", ""),
-        "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+        "redis_url": os.getenv("REDIS_URL", ""),
         "object_store_endpoint": os.getenv("OBJECT_STORE_ENDPOINT", ""),
         "object_store_bucket": os.getenv("OBJECT_STORE_BUCKET", ""),
         "object_store_access_key": os.getenv("OBJECT_STORE_ACCESS_KEY", ""),

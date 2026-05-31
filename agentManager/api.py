@@ -25,6 +25,7 @@ from agentManager.observability.logging import (
     clear_request_context,
 )
 from agentManager.observability.tracing import setup_tracing
+from agentManager.runtime.factory import create_runtime
 
 # Configure structured logging (JSON by default, respects LOG_LEVEL/LOG_JSON env)
 setup_logging()
@@ -60,11 +61,12 @@ async def request_correlation_middleware(request: Request, call_next):
     finally:
         clear_request_context()
 
-# Initialize core engines
-dag_engine = DAGEngine()
-state_machine = StateMachine()
-event_bus = EventBus()
-scheduler = SchedulerEngine(max_concurrent_tasks=10)
+# Initialize core engines via RuntimeFactory
+_runtime = create_runtime()
+dag_engine = _runtime.dag_engine
+state_machine = _runtime.state_machine
+event_bus = _runtime.event_bus
+scheduler = _runtime.scheduler
 
 # ============================================================================
 # Prometheus Metrics

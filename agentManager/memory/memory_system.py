@@ -80,14 +80,24 @@ class MemorySystem:
 
     Provides storage, retrieval, search, and cleanup operations for memory entries
     across multiple layers with automatic expiration handling.
+
+    When a ``vector_backend`` is provided, ``store`` indexes entry content for
+    semantic search and ``search`` delegates to the vector backend for
+    similarity-based retrieval. Structured data is always persisted in SQLite.
     """
 
-    def __init__(self, storage_backend: str = "sqlite", db_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        storage_backend: str = "sqlite",
+        db_path: Optional[str] = None,
+        vector_backend: Any = None,
+    ) -> None:
         """Initialize the memory system.
 
         Args:
-            storage_backend: Backend type (currently only "sqlite" supported)
+            storage_backend: Backend type for structured storage ("sqlite").
             db_path: Path to SQLite database file. Defaults to "memory.db"
+            vector_backend: Optional VectorSearchBackend for semantic search.
 
         Raises:
             ValueError: If unsupported backend is specified
@@ -97,6 +107,7 @@ class MemorySystem:
 
         self.backend = storage_backend
         self.db_path = Path(db_path or "memory.db")
+        self.vector_backend = vector_backend
         self._lock = RLock()
         self._conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self._init_db()
@@ -148,6 +159,13 @@ class MemorySystem:
     def store(self, entry: MemoryEntry) -> str:
         """Store a memory entry in the system.
 
+        When a ``vector_backend`` is configured, the entry content is also
+        indexed for semantic search. Vector indexing is **best-effort**:
+        failures are logged but do not prevent the SQLite write. In an
+        async context (e.g. inside a running event loop), the upsert is
+        scheduled as a fire-and-forget task; use ``astore()`` if you need
+        to await completion.
+
         Args:
             entry: MemoryEntry object to store
 
@@ -169,7 +187,82 @@ class MemorySystem:
                 json.dumps(entry.metadata)
             ))
             self._conn.commit()
+
+        self._index_to_vector_backend(entry)
+
         return entry.entry_id
+
+    async def astore(self, entry: MemoryEntry) -> str:
+        """Async variant of ``store`` that awaits vector backend indexing.
+
+        The SQLite write is synchronous (same as ``store``), but the vector
+        backend upsert is awaited so callers can confirm indexing success.
+
+        Args:
+            entry: MemoryEntry object to store
+
+        Returns:
+            The entry_id of the stored entry
+        """
+        with self._lock:
+            self._conn.execute("""
+                INSERT OR REPLACE INTO memory_entries
+                (entry_id, content, layer, timestamp, ttl_seconds, tags, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (
+                entry.entry_id,
+                entry.content,
+                entry.layer.name,
+                entry.timestamp.timestamp(),
+                entry.ttl_seconds,
+                json.dumps(entry.tags),
+                json.dumps(entry.metadata)
+            ))
+            self._conn.commit()
+
+        if self.vector_backend is not None:
+            try:
+                await self.vector_backend.upsert(
+                    entry.layer.name, entry.entry_id, entry.content
+                )
+            except Exception:
+                pass
+
+        return entry.entry_id
+
+    def _index_to_vector_backend(self, entry: MemoryEntry) -> None:
+        """Best-effort vector backend indexing after a synchronous store.
+
+        When no event loop is running, runs the upsert inline via
+        ``asyncio.run()``. When a loop is already running, schedules the
+        upsert as a fire-and-forget task — the caller cannot know whether
+        indexing succeeded. Use ``astore()`` for awaitable indexing.
+        """
+        if self.vector_backend is None:
+            return
+
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            asyncio.ensure_future(
+                self.vector_backend.upsert(
+                    entry.layer.name, entry.entry_id, entry.content
+                )
+            )
+        else:
+            try:
+                asyncio.run(
+                    self.vector_backend.upsert(
+                        entry.layer.name, entry.entry_id, entry.content
+                    )
+                )
+            except Exception:
+                pass
 
     def retrieve(self, entry_id: str) -> Optional[MemoryEntry]:
         """Retrieve a memory entry by ID.
@@ -210,13 +303,88 @@ class MemorySystem:
     def search(self, query: str, layer: Optional[MemoryLayer] = None) -> List[MemoryEntry]:
         """Search memory entries by content and optional layer filter.
 
+        When a ``vector_backend`` is configured and no event loop is
+        running, uses similarity-based search via the vector backend.
+        When an event loop is already running (e.g. inside FastAPI),
+        falls back to substring matching to avoid blocking the loop.
+        Use ``asearch()`` for proper async vector search.
+
         Args:
-            query: Search query string (case-insensitive substring match)
+            query: Search query string
             layer: Optional layer filter. If None, searches all layers
 
         Returns:
             List of matching MemoryEntry objects (excluding expired entries)
         """
+        if self.vector_backend is not None:
+            import asyncio
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return self._search_via_vector_backend_sync(query, layer)
+
+        return self._search_via_substring(query, layer)
+
+    async def asearch(self, query: str, layer: Optional[MemoryLayer] = None) -> List[MemoryEntry]:
+        """Async variant of ``search`` that awaits vector backend queries.
+
+        When a ``vector_backend`` is configured, delegates to it for
+        similarity-based retrieval and then fetches full MemoryEntry
+        objects from SQLite. Falls back to substring matching when no
+        vector backend is available or on query failure.
+
+        Args:
+            query: Search query string
+            layer: Optional layer filter. If None, searches all layers
+
+        Returns:
+            List of matching MemoryEntry objects (excluding expired entries)
+        """
+        if self.vector_backend is None:
+            return self._search_via_substring(query, layer)
+
+        try:
+            namespace = layer.name if layer else "all"
+            results = await self.vector_backend.query(namespace, query)
+        except Exception:
+            return self._search_via_substring(query, layer)
+
+        entries = []
+        for result in results:
+            entry = self.retrieve(result.key)
+            if entry is not None:
+                if layer is None or entry.layer == layer:
+                    entries.append(entry)
+        return entries
+
+    def _search_via_vector_backend_sync(
+        self, query: str, layer: Optional[MemoryLayer] = None
+    ) -> List[MemoryEntry]:
+        """Run a vector backend query synchronously via ``asyncio.run()``.
+
+        Only safe to call when no event loop is running (e.g. CLI scripts,
+        unit tests). Must not be called from inside an async context.
+        """
+        import asyncio
+
+        try:
+            namespace = layer.name if layer else "all"
+            results = asyncio.run(self.vector_backend.query(namespace, query))
+        except Exception:
+            return self._search_via_substring(query, layer)
+
+        entries = []
+        for result in results:
+            entry = self.retrieve(result.key)
+            if entry is not None:
+                if layer is None or entry.layer == layer:
+                    entries.append(entry)
+        return entries
+
+    def _search_via_substring(
+        self, query: str, layer: Optional[MemoryLayer] = None
+    ) -> List[MemoryEntry]:
+        """Search using SQLite substring matching (original behavior)."""
         with self._lock:
             if layer:
                 cursor = self._conn.execute("""

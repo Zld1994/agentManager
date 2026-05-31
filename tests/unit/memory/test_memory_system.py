@@ -324,3 +324,87 @@ class TestMemorySystem:
             assert system._conn is not None
 
         assert system._conn is None
+
+
+class TestMemorySystemVectorBackend:
+    """Test MemorySystem with pluggable vector backend."""
+
+    def test_accepts_vector_backend(self, temp_db):
+        from agentManager.memory.vector_backend import InMemoryVectorSearchBackend
+        vector = InMemoryVectorSearchBackend()
+        mem = MemorySystem(db_path=temp_db, vector_backend=vector)
+        assert mem.vector_backend is vector
+        mem.close()
+
+    def test_none_vector_backend_is_default(self, temp_db):
+        mem = MemorySystem(db_path=temp_db)
+        assert mem.vector_backend is None
+        mem.close()
+
+    def test_sync_search_falls_back_on_vector_error(self, temp_db):
+        from unittest.mock import AsyncMock, MagicMock
+        vector = MagicMock()
+        vector.query = AsyncMock(side_effect=RuntimeError("vector error"))
+        mem = MemorySystem(db_path=temp_db, vector_backend=vector)
+        entry = MemoryEntry(content="Python programming", layer=MemoryLayer.SHORT_TERM)
+        mem.store(entry)
+        results = mem._search_via_vector_backend_sync("Python")
+        assert len(results) == 1
+        assert results[0].content == "Python programming"
+        mem.close()
+
+    def test_search_uses_substring_when_no_vector_backend(self, temp_db):
+        mem = MemorySystem(db_path=temp_db)
+        entry = MemoryEntry(content="Python programming", layer=MemoryLayer.SHORT_TERM)
+        mem.store(entry)
+        results = mem.search("Python")
+        assert len(results) == 1
+        mem.close()
+
+    def test_search_falls_back_to_substring_inside_running_loop(self, temp_db):
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        vector = MagicMock()
+        vector.query = AsyncMock(return_value=[])
+        mem = MemorySystem(db_path=temp_db, vector_backend=vector)
+        entry = MemoryEntry(content="Python programming", layer=MemoryLayer.SHORT_TERM)
+        mem.store(entry)
+
+        async def _run():
+            results = mem.search("Python")
+            assert len(results) == 1
+            assert results[0].content == "Python programming"
+
+        asyncio.run(_run())
+        mem.close()
+
+    @pytest.mark.asyncio
+    async def test_asearch_uses_vector_backend(self, temp_db):
+        from unittest.mock import AsyncMock, MagicMock
+        from agentManager.memory.vector_backend import VectorSearchResult
+        vector = MagicMock()
+        vector.upsert = AsyncMock(return_value=None)
+        vector.query = AsyncMock(return_value=[
+            VectorSearchResult(key="entry-1", score=0.9)
+        ])
+        mem = MemorySystem(db_path=temp_db, vector_backend=vector)
+        entry = MemoryEntry(content="Python programming", layer=MemoryLayer.SHORT_TERM, entry_id="entry-1")
+        mem.store(entry)
+
+        results = await mem.asearch("Python")
+        assert len(results) == 1
+        assert results[0].content == "Python programming"
+        vector.query.assert_awaited_once()
+        mem.close()
+
+    @pytest.mark.asyncio
+    async def test_astore_awaits_vector_upsert(self, temp_db):
+        from unittest.mock import AsyncMock, MagicMock
+        vector = MagicMock()
+        vector.upsert = AsyncMock()
+        mem = MemorySystem(db_path=temp_db, vector_backend=vector)
+        entry = MemoryEntry(content="Test content", layer=MemoryLayer.SHORT_TERM)
+
+        await mem.astore(entry)
+        vector.upsert.assert_awaited_once()
+        mem.close()
