@@ -1,7 +1,8 @@
-# agentManager M4 任务清单 — 专家团 v2
+# agentManager M4 任务清单 — 专家团 v3
 
-> **生成时间：** 2026-06-01  
-> **来源：** 专家团评审（独立评审 → 交叉质询 → 方案收敛）  
+> **生成时间：** 2026-06-01
+> **版本历史：** v1 初始评审 → v2 方案收敛 → v3 M4-C.5.1 闭环 + stderr 修复
+> **来源：** 专家团评审（独立评审 → 交叉质询 → 方案收敛）
 > **基线：** 652 测试通过 · P0/P1/P3 基础框架已完成  
 > **核心原则：** 代码实现不阻塞于环境；验证阶段才需要 Docker。每个任务足够小，可独立验证和提交。
 
@@ -185,11 +186,25 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-C.5 — E2E Span 验证（依赖 M4-A.4）
 
-- [ ] **M4-C.5.1** 端到端验证 span 输出
+- [x] **M4-C.5.1** 端到端验证 span 输出
   - 方式：启动 `docker compose up -d`（含 OTEL Collector + Jaeger）
   - 运行一个简单工作流（`POST /workflow → POST /tasks → 执行`）
   - 检查 Jaeger UI（`http://localhost:16686`）中可以看到完整 span 链路
   - 验证标准：至少 5 个不同 span 类型的 trace 可见
+
+  **✅ 已闭环（2026-06-01，commit `2bed02e`）：**
+
+  > **根因修复：** Dockerfile.dev 只装 `[dev]` extra，未装 `[otel]` 包。修复为 `pip install -e ".[dev,otel]"`，重建镜像后重启容器。
+
+  | 指标 | 结果 |
+  |------|------|
+  | Jaeger 服务 | `agentManager`（opentelemetry-instrumentation-fastapi v0.63b1） |
+  | 链路总数 | 10 条 |
+  | Span 类型 | `GET /health`, `GET /status`, `GET /tasks/ready`, `POST /tasks`, `scheduler.add_task`, ASGI `http send/receive` |
+  | 验证命令 | `curl "http://localhost:16686/api/traces?service=agentManager"` |
+  | 关联 commit | `2bed02e` — M4-C.5.1: Enable OTEL tracing E2E + fix stderr test syntax |
+
+  **补充修复：** `api.py` 中 `setup_tracing()` 有两处调用（第 30 行模块加载和第 38 行），合并为单次调用（移到 `setup_logging()` 之后），避免重复初始化日志处理器。
 
 ---
 
@@ -471,4 +486,4 @@ M4-F (配置同步)      ← 依赖 M4-C、M4-E 输出
 
 ---
 
-> **下一步：** 在可用 Docker Compose v2 或 CI 环境中闭环 M4-A.1.2、M4-A.2、M4-C.5、M4-D.1.2，并补充 M4-F.3 性能基准报告。
+> **下一步：** M4-C.5.1 ✅ 已闭环。剩余：M4-A.2（本地 Docker 验证）、M4-D.1.2（沙箱安全集成测试，需 Docker SDK）、M4-F.3（OTEL 性能基准）。Docker SDK 依赖可先在 CI 的 `sandbox-integration` job 中验证。
