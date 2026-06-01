@@ -53,21 +53,39 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-A.2 — Docker Compose 文档化验证
 
-- [ ] **M4-A.2.1** `docker compose config` — 验证 compose 文件语法
+- [x] **M4-A.2.1** `docker compose config` — 验证 compose 文件语法
   - 工作目录：`agentManager/`
   - 验证标准：退出码 0，无 ERROR
 
-- [ ] **M4-A.2.2** `docker compose build agentmanager` — 验证开发镜像构建
+- [x] **M4-A.2.2** `docker compose build agentmanager` — 验证开发镜像构建
   - 验证标准：构建成功，镜像大小 < 600MB
 
-- [ ] **M4-A.2.3** `docker compose up -d` — 启动全部 5 个服务
+  **✅ 实测（2026-06-01）：** 构建成功，~150s（含 `[dev,otel]` 依赖），镜像已存在
+
+- [x] **M4-A.2.3** `docker compose up -d` — 启动全部 7 个服务
   - 验证标准：`docker compose ps` 显示所有服务 `healthy` 或 `running`
+
+  **✅ 实测（2026-06-01）：**
+  | 服务 | 状态 | 说明 |
+  |------|------|------|
+  | agentmanager-api | healthy | OTEL 已上报，6 种 span 类型 |
+  | postgres | healthy | |
+  | redis | healthy | |
+  | qdrant | healthy | |
+  | minio | healthy | |
+  | otel-collector | running | OTLP gRPC 4317 / HTTP 4318 |
+  | jaeger | running | UI http://localhost:16686 |
+
+  `/health` 返回 `{"status": "ok", "dependencies": {"redis": "ok"}}`  
+  Jaeger 链路：100 条，涵盖 `GET /health`、`POST /tasks`、`scheduler.add_task`
 
 - [ ] **M4-A.2.4** `docker build -f Dockerfile.prod -t agentmanager:prod .` — 生产镜像构建
   - 验证标准：构建成功，镜像大小 < 500MB
 
-- [ ] **M4-A.2.5** `docker compose down` — 干净关闭
-  - 验证标准：退出码 0，`docker compose ps` 无残留容器
+- [x] **M4-A.2.5** `docker compose down` — 干净关闭
+  - 验证标准：退出码 0，`docker ps` 和 `docker compose ps` 无残留容器
+
+  **✅ 实测（2026-06-01）：** 退出码 0，7 容器 + 1 网络全部清理
 
 - [x] **M4-A.2.6** 记录验证结果到 `docs/reports/docker-compose-verification-2026-06-01.md`
 
