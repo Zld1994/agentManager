@@ -43,10 +43,9 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 ### M4-A.1 — CI 基准修复
 
 - [ ] **M4-A.1.1** 修复 CI `REDIS_URL` 占位符
-  - 文件：`.github/workflows/ci.yml` 第 80、104 行
+  - 文件：`.github/workflows/ci.yml` 第 66、80、104 行
   - 问题：`REDIS_URL: redis://localhost:***@localhost:5432/agentmanager_test`（密码是占位符、端口是 PostgreSQL 端口）
-  - 修复：`REDIS_URL: redis://localhost:6379/0`
-
+  - 修复：全部改为 `REDIS_URL: redis://localhost:6379/0`
 - [ ] **M4-A.1.2** 验证 CI Redis 连接正常
   - 修复后运行：`python -m pytest tests/unit/test_redis_stream_event_bus.py -v --no-cov`
   - 验证：Redis service container 可达
@@ -76,8 +75,10 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 - [ ] **M4-A.3.1** 实现依赖连通性检查
   - 文件：`agentManager/api.py`
   - 逻辑：当 `DATABASE_URL` 配置时，尝试 `SELECT 1`；当 `REDIS_URL` 配置时，尝试 `PING`
-  - 返回格式：`{"status": "ok", "dependencies": {"postgres": "ok", "redis": "ok"}}`
-  - 依赖不可用时仍返回 200，但 `dependencies.<name>` 标记为 `"degraded"`
+  - 返回格式：`{"status": "ok|degraded|unhealthy", "dependencies": {"postgres": "ok|degraded", "redis": "ok|degraded"}}`
+  - **非 strict 模式**（默认）：依赖不可用时仍返回 HTTP 200，`status` 标记为 `"degraded"`
+  - **strict 模式**（`?strict=true`）：依赖不可用时返回 HTTP 503，`status` 标记为 `"unhealthy"`
+  - 负载均衡器可通过 `strict=true` 检查判断是否将流量路由到该实例
   - 只检查**必需的**依赖（由环境变量是否配置决定），不检查 OTEL Collector / MinIO
 
 ### M4-A.4 — OTEL Collector Compose 集成
@@ -149,9 +150,12 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 - [ ] **M4-C.2.1** 添加 FastAPI OTEL instrumentation middleware
   - 文件：`agentManager/api.py`
-  - 实现：在 `request_correlation_middleware` 前添加 OpenTelemetry middleware
-  - 使用 `opentelemetry-instrumentation-fastapi` 包（如已安装）或自定义 `@app.middleware("http")`
-  - 属性：`http.method`, `http.url`, `http.status_code`, `http.route`
+  - **方案：使用 `opentelemetry-instrumentation-fastapi`**（推荐）
+    - 与项目已有 OTEL SDK 集成一致，自动注入请求级 span
+    - 在 `setup_tracing()` 中调用 `from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor; FastAPIInstrumentor.instrument_app(app)`
+    - span 属性：`http.method`, `http.url`, `http.status_code`, `http.route`（自动注入）
+  - 在 `pyproject.toml` 新增 `otel` extra：`opentelemetry-instrumentation-fastapi`
+  - 如 `opentelemetry-instrumentation-fastapi` 不可用，降级为自定义 `@app.middleware("http")`（手动设置 span 属性）
 
 ### M4-C.3 — 外围模块 Span 覆盖
 
@@ -229,10 +233,23 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-E.1 — Schema 对齐检查
 
-- [ ] **M4-E.1.1** 检查 `AuditEvent` dataclass 与现有 `audit_record` 表 Schema 是否匹配
-  - 不匹配的字段通过 `payload JSONB` 列存储
-  - 如需索引 `event_type`，在 `initialize_schema()` 中添加 `CREATE INDEX IF NOT EXISTS`
-  - 不引入独立迁移框架——项目哲学是 `initialize_schema()` 自愈式建表
+- [ ] **M4-E.1.1** 定义 `AuditEvent` → `audit_record` 显式映射规则
+  - **显式映射**（直接写列）：
+    | AuditEvent 字段 | audit_record 列 | 说明 |
+    |-----------------|-----------------|------|
+    | `timestamp` | `timestamp` | ✅ 直接映射 |
+    | `event_type.value` | `action` | 枚举值转字符串 TEXT |
+    | `resource` | `entity_id` | 审计资源 ID |
+  - **JSONB 字段**（放入 `payload`）：
+    | AuditEvent 字段 | payload 中的 key |
+    |-----------------|------------------|
+    | `actor` | `"actor"` |
+    | `outcome` | `"outcome"` |
+    | `detail` | `"detail"` |
+  - `payload` 列上建 GIN 索引：`CREATE INDEX IF NOT EXISTS idx_audit_payload ON audit_record USING GIN (payload)`
+  - `action` 列上建索引：`CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_record (action)`
+  - 在 `postgres.py:initialize_schema()` 中添加上述两个索引的 `CREATE INDEX IF NOT EXISTS` 语句
+  - 验证：查询 `SELECT action, entity_id, payload->>'actor' FROM audit_record` 可直接拿到关键字段
 
 ### M4-E.2 — PostgresAuditSink 实现
 
@@ -247,10 +264,13 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 - [ ] **M4-E.3.1** 实现 `ObjectStoreAuditSink` 类
   - 文件：`agentManager/observability/audit.py`
   - 接受 `ObjectStore` 实例
-  - 写入策略：**按小时聚合**（非每事件一个文件）：
-    - key 格式：`audit/{yyyy-mm-dd}/{hh}.jsonl`
-    - 追加写入 JSONL 格式（每行一个事件）
-    - 支持 MinIO 的 S3 Append 或先 GET → 合并 → PUT
+  - **当前阶段采用每事件独立文件 + 按小时前缀聚合**：
+    - key 格式：`audit/{yyyy-mm-dd}/{hh}/{event_id}.json`
+    - 每事件一个文件，无并发写入冲突
+    - 查询时通过 key 前缀 `audit/{date}/{hour}/` 批量获取
+  - **并发限制说明**：
+    - 当前方案**无竞态条件**（每事件独立文件，原子写入）
+    - 若未来改用 JSONL 追加模式（GET → 合并 → PUT），多实例部署需加分布式锁，当前阶段不引入此复杂度
   - 降级策略：如 ObjectStore 不可用，事件仍写入 log（已有机制）
 
 ### M4-E.4 — 审计事件脱敏
