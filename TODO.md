@@ -48,8 +48,9 @@
 **Docker/Compose 验证状态 (2026-06-01 更新)**:
 - ✅ `docker-compose.yml` 已加入 OTEL Collector 和 Jaeger 服务，agentmanager 服务已接入 OTEL/AUDIT 环境变量。
 - ✅ CI 已新增 `docker-verify` job，覆盖 `docker compose config`、生产镜像构建和开发镜像构建。
-- ⚠️ 本机 Docker Compose 运行时验证仍依赖可用 Docker/Compose 环境；如当前 Windows/WSL 环境无法提供 Docker Compose v2，则 M4-A.2/M4-C.5/M4-D.1.2 只能在 CI 或修复后的本机环境中闭环。
-- 后续操作：在 CI 查看 `docker-verify` 和 `sandbox-integration` job 结果，并在本地 Docker 可用后补充 `docs/reports/docker-compose-verification-2026-06-01.md`。
+- ✅ **M4-C.5.1 本地闭环**：`OTEL_TRACING_ENABLED=true`，Jaeger UI 显示 `agentManager` 服务 10 条链路
+- ⚠️ 沙箱集成测试（M4-D.1.2）跳过：容器内无 `docker` Python SDK（需在 CI 环境验证）
+- 后续：在 CI 查看 `sandbox-integration` job 结果
 
 ## Obsidian 审查中的待修复项
 
@@ -188,3 +189,18 @@
 
 **验证完成 (2026-06-01)**:
 - `python -m pytest -q --no-cov` - 652 通过，12 跳过
+
+✅ **M4-C.5.1 已完成 (2026-06-01)**:
+- 问题发现：Jaeger UI 显示 0 services，OTEL 包未安装
+- 根因：`Dockerfile.dev` 只装 `[dev]` extra，未装 `[otel]` 包
+- 修复：`pip install -e ".[dev,otel]"`，重建镜像，重启容器
+- E2E 验证：Jaeger 显示 `agentManager` 服务 10 条链路
+  - Span 类型：`GET /health`, `GET /status`, `GET /tasks/ready`, `POST /tasks`, `scheduler.add_task`, FastAPI ASGI `http send/receive`
+  - 验证命令：`curl "http://localhost:16686/api/traces?service=agentManager"`
+- 代码修复：`api.py` 中 `setup_tracing()` 两处调用合并为单次，避免重复初始化
+- stderr 测试修复：`test_sandbox_docker.py` 中 `>&2 echo` 改为 `sh -c "echo 1>&2"`，兼容 Docker 容器 shell
+
+**Git 提交**: `2bed02e` — M4-C.5.1: Enable OTEL tracing E2E + fix stderr test syntax
+
+**验证完成 (2026-06-01)**:
+- `git push` → https://github.com/Zld1994/agentManager.git main
