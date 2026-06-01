@@ -22,7 +22,7 @@ def sandbox_config():
     """Create a test SandboxConfig."""
     return SandboxConfig(
         worker_id="test-worker-1",
-        image="python:3.10-slim",
+        image="python:3.11-slim",
         cpu_limit=1.0,
         memory_limit="512m",
         timeout=300,

@@ -48,13 +48,15 @@
 **Docker/Compose 验证状态 (2026-06-01 更新)**:
 - ✅ `docker-compose.yml` 已加入 OTEL Collector 和 Jaeger 服务，agentmanager 服务已接入 OTEL/AUDIT 环境变量。
 - ✅ CI 已新增 `docker-verify` job，覆盖 `docker compose config`、生产镜像构建和开发镜像构建。
-- ✅ **M4-C.5.1 本地闭环**：`OTEL_TRACING_ENABLED=true`，Jaeger UI 显示 `agentManager` 服务 10 条链路
+- ✅ **M4-C.5.1 E2E 闭环**：`OTEL_TRACING_ENABLED=true`，Jaeger UI 显示 `agentManager` 服务链路
+- ✅ **M4-A.2 本地闭环（4/5 子项）**：`docker compose config` ✅、`build` ✅、`up -d` 7服务 healthy ✅、`down` 干净 ✅；`Dockerfile.prod` 构建待测试
 - ⚠️ 沙箱集成测试（M4-D.1.2）跳过：容器内无 `docker` Python SDK（需在 CI 环境验证）
-- 后续：在 CI 查看 `sandbox-integration` job 结果
+- ⚠️ 生产镜像构建（M4-A.2.4）待测试
+- 后续：测试 `docker build -f Dockerfile.prod`；在 CI 查看 `sandbox-integration` job 结果
 
 ## Obsidian 审查中的待修复项
 
-- 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。→ M4-A.2
+- 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。→ M4-A.2 ⚠️ A.2.4 待测试
 - 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。→ M4-A.5
 - 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。→ M4-D
 - ✅ 已完成：完善审计事件数据库和对象存储写入实现。→ M4-E

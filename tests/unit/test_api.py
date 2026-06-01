@@ -87,6 +87,7 @@ class TestHealthEndpoint:
     def test_health_check_reports_degraded_dependency_without_strict(self, client, monkeypatch):
         """Configured dependencies should degrade health without failing default checks."""
         monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/db")
+        monkeypatch.delenv("REDIS_URL", raising=False)
 
         with patch("agentManager.api._check_postgres_dependency", return_value="degraded"):
             response = client.get("/health")
@@ -99,6 +100,7 @@ class TestHealthEndpoint:
     def test_health_check_strict_returns_503_for_degraded_dependency(self, client, monkeypatch):
         """Strict checks should be usable by load balancers."""
         monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+        monkeypatch.delenv("DATABASE_URL", raising=False)
 
         with patch("agentManager.api._check_redis_dependency", return_value="degraded"):
             response = client.get("/health?strict=true")
@@ -155,18 +157,23 @@ class TestTaskCreation:
 
     def test_create_task_adds_request_id_to_event_payload(self, client):
         """Task creation events should carry request correlation IDs."""
-        response = client.post(
-            "/tasks",
-            headers={"X-Request-ID": "req-abc"},
-            json={
-                "node_id": "task_1",
-                "task_type": "data_processing",
-                "dependencies": [],
-            },
-        )
+        import json as json_module
+
+        with patch.object(event_bus, "publish", wraps=event_bus.publish) as mock_publish:
+            response = client.post(
+                "/tasks",
+                headers={"X-Request-ID": "req-abc"},
+                json={
+                    "node_id": "task_1",
+                    "task_type": "data_processing",
+                    "dependencies": [],
+                },
+            )
 
         assert response.status_code == 201
-        assert event_bus.events[-1].payload["correlation_id"] == "req-abc"
+        mock_publish.assert_called_once()
+        published_event = mock_publish.call_args[0][0]
+        assert published_event.payload["correlation_id"] == "req-abc"
 
     def test_create_task_with_dependencies(self, client):
         """Test creating task with dependencies."""

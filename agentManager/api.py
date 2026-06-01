@@ -287,12 +287,13 @@ def get_status():
         Current system status including task counts
     """
     try:
+        events_count = len(event_bus.events) if hasattr(event_bus, "events") else 0
         return {
             "total_tasks": len(dag_engine.nodes),
             "running_tasks": len(scheduler.running_tasks),
             "completed_tasks": len(scheduler.completed_tasks),
             "dag_nodes": len(dag_engine.nodes),
-            "events_published": len(event_bus.events),
+            "events_published": events_count,
         }
     except Exception as e:
         logger.error(f"Error getting system status: {e}")
