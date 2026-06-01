@@ -74,9 +74,12 @@ class ObjectStoreCheckpointManager(CheckpointManager):
         self.prefix = prefix.strip("/")
 
     async def save_checkpoint(self, task_id: str, context: Any) -> None:
-        with create_span("checkpoint.save", {"task.id": task_id}):
-            key = self._key_for_task(task_id)
-            data = json.dumps(context).encode("utf-8")
+        key = self._key_for_task(task_id)
+        data = json.dumps(context).encode("utf-8")
+        with create_span(
+            "checkpoint.save",
+            {"task.id": task_id, "checkpoint.size_bytes": len(data)},
+        ):
             self.object_store.put_bytes(key, data, content_type="application/json")
 
     async def load_checkpoint(self, task_id: str) -> Optional[Any]:

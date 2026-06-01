@@ -142,3 +142,40 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           MINIMUM_GREEN: 80
           MINIMUM_ORANGE: 60
+
+  docker-verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify compose syntax
+        run: docker compose config
+
+      - name: Build production image
+        run: docker build -f Dockerfile.prod -t agentmanager:prod .
+
+      - name: Build development image
+        run: docker build -f Dockerfile.dev -t agentmanager:dev .
+
+  sandbox-integration:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,sandbox]"
+
+      - name: Run Docker sandbox integration tests
+        run: pytest tests/integration/test_sandbox_docker.py -v --no-cov -m integration

@@ -3,6 +3,7 @@
 import importlib
 import subprocess
 import sys
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -71,14 +72,50 @@ class TestApplicationStartup:
 class TestHealthEndpoint:
     """Test health check endpoint."""
 
-    def test_health_check(self, client):
+    def test_health_check(self, client, monkeypatch):
         """Test health check returns ok."""
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+        monkeypatch.delenv("REDIS_URL", raising=False)
         response = client.get("/health")
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "ok"
         assert data["version"] == "0.1.0"
         assert "timestamp" in data
+        assert data["dependencies"] == {}
+
+    def test_health_check_reports_degraded_dependency_without_strict(self, client, monkeypatch):
+        """Configured dependencies should degrade health without failing default checks."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://localhost/db")
+
+        with patch("agentManager.api._check_postgres_dependency", return_value="degraded"):
+            response = client.get("/health")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "degraded"
+        assert data["dependencies"] == {"postgres": "degraded"}
+
+    def test_health_check_strict_returns_503_for_degraded_dependency(self, client, monkeypatch):
+        """Strict checks should be usable by load balancers."""
+        monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+
+        with patch("agentManager.api._check_redis_dependency", return_value="degraded"):
+            response = client.get("/health?strict=true")
+
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "unhealthy"
+        assert data["dependencies"] == {"redis": "degraded"}
+
+    def test_fastapi_instrumentation_is_optional(self):
+        """Missing optional instrumentation package should not break API startup."""
+        fake_app = MagicMock()
+
+        with patch.dict("sys.modules", {"opentelemetry.instrumentation.fastapi": None}):
+            from agentManager.api import _instrument_fastapi_app
+
+            assert _instrument_fastapi_app(fake_app) is False
 
     def test_status_endpoint(self, client):
         """Test status endpoint."""

@@ -24,7 +24,10 @@ Responses are returned as plain JSON objects. Success responses use the endpoint
 
 #### GET /health
 
-Health check endpoint. Use this to verify the API is running.
+Health check endpoint. Use this to verify the API is running. By default,
+configured dependencies are checked in non-strict mode: dependency failures
+return HTTP 200 with `status: "degraded"`. Load balancers can call
+`/health?strict=true` to receive HTTP 503 when a configured dependency is down.
 
 **Request**:
 ```bash
@@ -36,14 +39,63 @@ curl http://localhost:8000/health
 {
   "status": "ok",
   "version": "0.1.0",
-  "timestamp": "2026-05-24T04:00:00Z"
+  "timestamp": "2026-06-01T04:00:00Z",
+  "dependencies": {}
 }
 ```
+
+**Response** (200 OK, non-strict degraded):
+```json
+{
+  "status": "degraded",
+  "version": "0.1.0",
+  "timestamp": "2026-06-01T04:00:00Z",
+  "dependencies": {
+    "postgres": "degraded",
+    "redis": "ok"
+  }
+}
+```
+
+**Response** (503 Service Unavailable, strict degraded):
+```json
+{
+  "status": "unhealthy",
+  "version": "0.1.0",
+  "timestamp": "2026-06-01T04:00:00Z",
+  "dependencies": {
+    "postgres": "degraded"
+  }
+}
+```
+
+**Fields**:
+- `status`: `ok`, `degraded`, or `unhealthy`
+- `dependencies`: only includes dependencies configured through environment variables; supported keys are `postgres` and `redis`
 
 **Use Cases**:
 - Kubernetes liveness probe
 - Load balancer health check
 - Monitoring and alerting
+
+---
+
+#### GET /metrics
+
+Prometheus metrics endpoint. The default registry includes API task/error
+metrics and audit sink failure counters.
+
+**Request**:
+```bash
+curl http://localhost:8000/metrics
+```
+
+**Metrics**:
+- `agentmanager_tasks_total`
+- `agentmanager_task_duration_seconds`
+- `agentmanager_errors_total`
+- `agentmanager_repairs_total`
+- `agentmanager_audit_sink_failures_total{sink="db|object_storage"}`
 
 ---
 

@@ -158,6 +158,13 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
   should mock PostgreSQL, object storage, Redis, and Qdrant unless explicitly integration-scoped.
 - Observability defaults are local-safe: text logs, `X-Request-ID` request correlation, audit
   helpers under `agentManager.audit`, and tracing disabled unless `OTEL_TRACING_ENABLED=true`.
+- Durable audit sinks are injected through `configure_audit_sinks(..., repository=..., object_store=...)`;
+  avoid direct SQL or boto3 calls from `agentManager/observability/audit.py`.
+- `/health` checks only dependencies configured through environment variables. Default mode returns
+  HTTP 200 with `status="degraded"` on dependency failure; `?strict=true` returns HTTP 503.
+- Local Docker Compose verification is still environment-dependent. Windows PowerShell may not have
+  `docker`, and WSL may have Docker CLI without the Compose v2 plugin; keep Docker verification
+  reports explicit about local-only blockers.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
   may be generated locally. Avoid editing generated metadata by hand unless packaging behavior is
   the target of the task.

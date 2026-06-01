@@ -45,26 +45,26 @@
 - `.venv312\Scripts\python.exe -m pytest -q --no-cov` - 557 个通过，1 个警告。
 - `.venv312\Scripts\python.exe -m pytest -q` - 557 个通过，1 个警告，总覆盖率 85%。
 
-**Docker/Compose 验证状态 (2026-05-31 更新)**:
-- ✅ Compose 配置文件 (`docker-compose.yml`) 和 Dockerfile (`Dockerfile.dev`、`Dockerfile.prod`) 已通过静态分析验证，语法和路径均有效。
-- ✅ 部分环境通过 Daocloud 镜像源 (`docker.m.daocloud.io`) 完成过运行时验证：开发镜像构建 (596MB)、生产镜像构建 (493MB)、5 个容器启动、API `/health` 返回正常、干净关闭。
-- ⚠️ 标准 CI / 干净机器 / 目标部署环境下的 Docker Compose 验证尚未闭环。Windows PowerShell 没有 `docker` 命令；WSL `Ubuntu-24.04` 有 Docker Engine CLI `29.1.3` 但未安装 `docker compose`；Daocloud 镜像源验证受网络代理环境影响，不代表标准部署路径。
-- 后续操作：在 WSL 中安装 Docker Compose v2 或在 Windows 上暴露 Docker Desktop Compose，确保 Docker Hub 注册表访问/代理设置正常工作，并在 CI 中添加 Docker build / compose config 验证 job。
+**Docker/Compose 验证状态 (2026-06-01 更新)**:
+- ✅ `docker-compose.yml` 已加入 OTEL Collector 和 Jaeger 服务，agentmanager 服务已接入 OTEL/AUDIT 环境变量。
+- ✅ CI 已新增 `docker-verify` job，覆盖 `docker compose config`、生产镜像构建和开发镜像构建。
+- ⚠️ 本机 Docker Compose 运行时验证仍依赖可用 Docker/Compose 环境；如当前 Windows/WSL 环境无法提供 Docker Compose v2，则 M4-A.2/M4-C.5/M4-D.1.2 只能在 CI 或修复后的本机环境中闭环。
+- 后续操作：在 CI 查看 `docker-verify` 和 `sandbox-integration` job 结果，并在本地 Docker 可用后补充 `docs/reports/docker-compose-verification-2026-06-01.md`。
 
 ## Obsidian 审查中的待修复项
 
-- 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。
-- 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。
-- 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。
-- ✅ 已完成：完善审计事件数据库和对象存储写入实现。
-- ✅ 已完成：为关键组件添加 OpenTelemetry 细粒度 span（检查点、内存操作、沙箱执行等）。
+- 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。→ M4-A.2
+- 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。→ M4-A.5
+- 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。→ M4-D
+- ✅ 已完成：完善审计事件数据库和对象存储写入实现。→ M4-E
+- ✅ 已完成：为关键组件添加 OpenTelemetry 细粒度 span（检查点、内存操作、沙箱执行等）。→ M4-C
 
 ## 建议的重构路线图
 
 1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。✅
 2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。✅ 已通过 RuntimeFactory 完成。
 3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。✅ 已通过 WorkflowCoordinator memory write-back 和 resume_workflow 完成。
-4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 已完成（含细粒度 span 和审计落库）
+4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 基础框架 / ⏳ 细粒度 span + 审计落库待完成项正在 M4 收尾
 
 ## 待处理的优化问题
 

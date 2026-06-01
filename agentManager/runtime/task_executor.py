@@ -13,9 +13,8 @@ from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.observability.audit import audit_task_execution
-from agentManager.observability.tracing import trace_operation
+from agentManager.observability.tracing import trace_operation, trace_task
 from agentManager.runtime.execution_context import ExecutionContext
-from agentManager.observability.tracing import trace_task, create_span
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +151,6 @@ class TaskExecutor:
 
     async def run_task(self, task: TaskLike) -> ExecutionContext:
         task_id = task.node_id
-        workflow_id = task.metadata.get("workflow_id", "unknown")
         task_type = task.metadata.get("task_type", "")
         with trace_task(task_id, task_type):
             return await self._run_task_impl(task)
@@ -249,6 +247,8 @@ class TaskExecutor:
             )
 
             duration = context.get_duration()
+            if duration is not None:
+                span.set_attribute("task.duration_ms", duration * 1000)
             if duration is not None:
                 logger.info(
                     f"Task {task_id} completed successfully in {duration:.2f}s"

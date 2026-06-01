@@ -9,15 +9,15 @@ from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any
 from datetime import datetime, timezone
 import logging
+import os
 import time
 import re
 
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 
-from agentManager.engine.dag import DAGEngine, DAGNode, TaskStatus
-from agentManager.engine.state_manager import StateMachine, TaskState
-from agentManager.engine.event_bus import EventBus, EventType, Event
-from agentManager.engine.scheduler import SchedulerEngine
+from agentManager.engine.dag import DAGNode, TaskStatus
+from agentManager.engine.state_manager import TaskState
+from agentManager.engine.event_bus import EventType, Event
 from agentManager.observability.logging import (
     setup_logging,
     new_request_id,
@@ -47,6 +47,20 @@ app = FastAPI(
     description="AI Agent Orchestration Control Plane",
     version="0.1.0",
 )
+
+
+def _instrument_fastapi_app(fastapi_app: FastAPI) -> bool:
+    """Instrument FastAPI when the optional OTEL instrumentation package exists."""
+    try:
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    except (ImportError, AttributeError):
+        logger.debug("FastAPI OpenTelemetry instrumentation is unavailable")
+        return False
+    FastAPIInstrumentor.instrument_app(fastapi_app)
+    return True
+
+
+_instrument_fastapi_app(app)
 
 
 @app.middleware("http")
@@ -187,6 +201,7 @@ class HealthResponse(BaseModel):
     status: str
     version: str
     timestamp: datetime
+    dependencies: Dict[str, str] = Field(default_factory=dict)
 
 
 class ReadyTasksResponse(BaseModel):
@@ -210,17 +225,57 @@ class EventResponse(BaseModel):
 # ============================================================================
 
 @app.get("/health", response_model=HealthResponse)
-def health_check():
+def health_check(response: Response, strict: bool = False):
     """Health check endpoint.
 
     Returns:
         Health status and version information
     """
+    dependencies: Dict[str, str] = {}
+    if os.getenv("DATABASE_URL"):
+        dependencies["postgres"] = _check_postgres_dependency(os.environ["DATABASE_URL"])
+    if os.getenv("REDIS_URL"):
+        dependencies["redis"] = _check_redis_dependency(os.environ["REDIS_URL"])
+
+    degraded = any(value != "ok" for value in dependencies.values())
+    health_status = "ok"
+    if degraded:
+        health_status = "unhealthy" if strict else "degraded"
+    if strict and degraded:
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+
     return {
-        "status": "ok",
+        "status": health_status,
         "version": "0.1.0",
         "timestamp": utc_now(),
+        "dependencies": dependencies,
     }
+
+
+def _check_postgres_dependency(database_url: str) -> str:
+    try:
+        import psycopg
+
+        with psycopg.connect(database_url, connect_timeout=2) as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        return "ok"
+    except Exception:
+        logger.exception("PostgreSQL health check failed")
+        return "degraded"
+
+
+def _check_redis_dependency(redis_url: str) -> str:
+    try:
+        import redis
+
+        client = redis.from_url(redis_url, socket_connect_timeout=2, socket_timeout=2)
+        client.ping()
+        return "ok"
+    except Exception:
+        logger.exception("Redis health check failed")
+        return "degraded"
 
 
 @app.get("/status")

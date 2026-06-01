@@ -42,7 +42,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-A.1 — CI 基准修复
 
-- [ ] **M4-A.1.1** 验证并修复 CI `REDIS_URL` 配置
+- [x] **M4-A.1.1** 验证并修复 CI `REDIS_URL` 配置
   - 文件：`.github/workflows/ci.yml` 第 66、80、104 行
   - 验证：读取三处当前值，如为 `redis://localhost:***@localhost:5432/agentmanager_test`（密码占位符 + PostgreSQL 端口）则修复为 `redis://localhost:6379/0`
   - 如已为正确值，跳过此任务（确认无需修改即可通过 M4-A.1.2）
@@ -68,11 +68,11 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 - [ ] **M4-A.2.5** `docker compose down` — 干净关闭
   - 验证标准：退出码 0，`docker compose ps` 无残留容器
 
-- [ ] **M4-A.2.6** 记录验证结果到 `docs/reports/docker-compose-verification-2026-06-01.md`
+- [x] **M4-A.2.6** 记录验证结果到 `docs/reports/docker-compose-verification-2026-06-01.md`
 
 ### M4-A.3 — `/health` 端点增强
 
-- [ ] **M4-A.3.1** 实现依赖连通性检查
+- [x] **M4-A.3.1** 实现依赖连通性检查
   - 文件：`agentManager/api.py`
   - 逻辑：当 `DATABASE_URL` 配置时，尝试 `SELECT 1`；当 `REDIS_URL` 配置时，尝试 `PING`
   - 返回格式：`{"status": "ok|degraded|unhealthy", "dependencies": {"postgres": "ok|degraded", "redis": "ok|degraded"}}`
@@ -83,14 +83,14 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-A.4 — OTEL Collector Compose 集成
 
-- [ ] **M4-A.4.1** 在 `docker-compose.yml` 中添加 `otel-collector` 和 `jaeger` 服务
+- [x] **M4-A.4.1** 在 `docker-compose.yml` 中添加 `otel-collector` 和 `jaeger` 服务
   - otel-collector：加载 `monitoring/otel-collector-config.yml`，暴露 OTLP gRPC (4317) 和 HTTP (4318)
   - jaeger：暴露 UI 端口 16686
   - 验证：`docker compose up -d` 后 Jaeger UI 可访问
 
 ### M4-A.5 — CI Docker 验证 Job
 
-- [ ] **M4-A.5.1** 在 `.github/workflows/ci.yml` 添加 `docker-verify` job
+- [x] **M4-A.5.1** 在 `.github/workflows/ci.yml` 添加 `docker-verify` job
   - 内容：`docker compose config` + `docker build -f Dockerfile.prod` + `docker build -f Dockerfile.dev`
   - 条件：仅在 `ubuntu-latest` runner 上运行
 
@@ -101,12 +101,12 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 > **目标：** 路线图标记如实反映完成状态，Obsidian 审查项映射到具体 task  
 > **依赖：** 无
 
-- [ ] **M4-B.1** 修正 TODO.md 路线图标记
+- [x] **M4-B.1** 修正 TODO.md 路线图标记
   - 当前：#4 "生产安全与观测" 标记 ✅ 但 P2-1.4/P2-2.2/P2-4.2 未完成
   - 修改：`✅ 基础框架 / ⏳ 细粒度 span + 审计落库待完成`
   - 验证：`git diff TODO.md`
 
-- [ ] **M4-B.2** 将 Obsidian 审查待修复项映射到 task 编号
+- [x] **M4-B.2** 将 Obsidian 审查待修复项映射到 task 编号
   - 第 56 行（Docker Compose 全流程）→ M4-A.2
   - 第 57 行（CI 支持的测试状态）→ M4-A.5
   - 第 58 行（WorkerSandbox 强化）→ M4-D
@@ -114,7 +114,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
   - 第 60 行（OTEL 细粒度 span）→ M4-C
   - 在每条 Obsidian 审查项后添加 `→ M4-*.x` 映射标注
 
-- [ ] **M4-B.3** 更新 Docker/Compose 状态描述
+- [x] **M4-B.3** 更新 Docker/Compose 状态描述
   - 当前第 49-52 行：最后更新 2026-05-31
   - 修改：反映 M4-A.2 验证结果
 
@@ -177,7 +177,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-C.4 — 单元测试
 
-- [ ] **M4-C.4.1** 编写 span 属性正确性测试
+- [x] **M4-C.4.1** 编写 span 属性正确性测试
   - 文件：`tests/unit/test_tracing_spans.py`
   - 覆盖：各组件 span 的属性名遵循 OTel 语义约定（点号分隔）
   - 覆盖：no-op 模式下不抛异常、不泄漏 span
@@ -213,13 +213,13 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-D.2 — CI 集成测试 Job
 
-- [ ] **M4-D.2.1** 评估 CI Docker-in-Docker 可行性
+- [x] **M4-D.2.1** 评估 CI Docker-in-Docker 可行性
   - 试验 GitHub Actions `ubuntu-latest` 的 Docker 可用性
   - 备选方案 A：使用 runner 自带 Docker socket
   - 备选方案 B：mock 测试（`unittest.mock.patch('docker.from_env')`）验证逻辑
   - 备选方案 C：使用 `testcontainers-python` 替代直接 Docker API 调用
 
-- [ ] **M4-D.2.2** 在 `.github/workflows/ci.yml` 添加 `sandbox-integration` job
+- [x] **M4-D.2.2** 在 `.github/workflows/ci.yml` 添加 `sandbox-integration` job
   - 内容：`pytest tests/integration/test_sandbox_docker.py -v -m integration`
   - 条件：根据 M4-D.2.1 的可行性决定具体条件
 
@@ -275,7 +275,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-E.4 — 审计事件脱敏
 
-- [ ] **M4-E.4.1** 实现审计事件敏感数据脱敏
+- [x] **M4-E.4.1** 实现审计事件敏感数据脱敏
   - 识别 `AuditEvent.detail` 中的敏感字段（如 `api_key`, `password`, `token`）
   - 脱敏规则：替换为 `***REDACTED***`
   - 配置方式：通过 `AUDIT_REDACT_FIELDS` 环境变量控制
@@ -283,12 +283,12 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-E.5 — 降级策略强化
 
-- [ ] **M4-E.5.1** 添加审计 Sink 失败计数器
+- [x] **M4-E.5.1** 添加审计 Sink 失败计数器
   - 指标：`agentmanager_audit_sink_failures_total{sink="db|object_storage"}`
   - 在 `record_audit_event()` 的 db / object_storage 异常分支中 `inc()`
   - 验证：Prometheus `/metrics` 端点可观测
 
-- [ ] **M4-E.5.2** 明确审计写入降级行为文档
+- [x] **M4-E.5.2** 明确审计写入降级行为文档
   - log sink 始终先写（已实现）
   - db sink 失败 → log fallback + 计数器递增
   - object_storage sink 失败 → 同上
@@ -296,21 +296,21 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-E.6 — 测试
 
-- [ ] **M4-E.6.1** 编写 PostgresAuditSink 单元测试
+- [x] **M4-E.6.1** 编写 PostgresAuditSink 单元测试
   - 文件：`tests/unit/test_audit_sinks.py`
   - mock `StateRepository`，验证 `append_audit_record()` 被正确调用
   - 验证字段映射正确
 
-- [ ] **M4-E.6.2** 编写 ObjectStoreAuditSink 单元测试
+- [x] **M4-E.6.2** 编写 ObjectStoreAuditSink 单元测试
   - 文件：`tests/unit/test_audit_sinks.py`
   - mock `ObjectStore`，验证按小时聚合 key 格式正确且每事件写入独立文件
   - 验证写入逻辑符合每事件独立文件（非 JSONL 追加）
 
-- [ ] **M4-E.6.3** 编写降级策略测试
+- [x] **M4-E.6.3** 编写降级策略测试
   - db sink 抛异常时 log sink 不受影响
   - 失败计数器正确递增
 
-- [ ] **M4-E.6.4** 移除占位符 WARNING
+- [x] **M4-E.6.4** 移除占位符 WARNING
   - 将 `_write_to_db` 和 `_write_to_object_storage` 从占位符函数改为调用 Sink 类
   - 不再输出 "audit event NOT actually written to DB" WARNING
 
@@ -323,19 +323,19 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-F.1 — 配置文件更新
 
-- [ ] **M4-F.1.1** 更新 `.env.example` 新增环境变量
+- [x] **M4-F.1.1** 更新 `.env.example` 新增环境变量
   - `OTEL_TRACING_ENABLED=false`
   - `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`
   - `AUDIT_SINK=log`（默认值）
   - `AUDIT_REDACT_FIELDS=api_key,password,token`
 
-- [ ] **M4-F.1.2** 更新 `docker-compose.yml`
+- [x] **M4-F.1.2** 更新 `docker-compose.yml`
   - 新增 OTEL Collector + Jaeger 服务（M4-A.4.1 的输出）
   - 新增 OTEL 相关环境变量到 agentmanager 服务
 
 ### M4-F.2 — API 文档更新
 
-- [ ] **M4-F.2.1** 更新 `docs/api.md`
+- [x] **M4-F.2.1** 更新 `docs/api.md`
   - `/health` 端点新增 `dependencies` 字段说明
   - `/metrics` 端点新增审计失败计数器说明
 
@@ -471,4 +471,4 @@ M4-F (配置同步)      ← 依赖 M4-C、M4-E 输出
 
 ---
 
-> **下一步：** M4-A.1.1（CI 修复）和 M4-B（TODO 修正）可以立即开始。M4-C.1（核心引擎 span）是最高价值的代码变更。其余按依赖关系并行推进。
+> **下一步：** 在可用 Docker Compose v2 或 CI 环境中闭环 M4-A.1.2、M4-A.2、M4-C.5、M4-D.1.2，并补充 M4-F.3 性能基准报告。

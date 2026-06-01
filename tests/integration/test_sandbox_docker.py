@@ -125,7 +125,8 @@ class TestWorkerSandboxRealDocker:
                 "s.settimeout(2); s.connect(('8.8.8.8',53))\" 2>&1 || true"
             )
 
-            assert exit_code != 0 or "network" in (stdout + stderr).lower() or "error" in (stdout + stderr).lower()
+            output = (stdout + stderr).lower()
+            assert exit_code != 0 or "network" in output or "error" in output
 
     def test_resource_limits(self, temp_workspace):
         """Test that resource limits are applied."""
@@ -143,6 +144,59 @@ class TestWorkerSandboxRealDocker:
             inspect = sandbox.container.attrs
             assert inspect["HostConfig"]["Memory"] == 268435456
             assert inspect["HostConfig"]["CpuQuota"] == 50000
+
+    def test_cap_drop_all(self, temp_workspace):
+        """Docker host config should drop all Linux capabilities."""
+        config = SandboxConfig(
+            worker_id="test-worker-security-001",
+            workspace_root=temp_workspace,
+            timeout=60,
+        )
+
+        with WorkerSandbox(config) as sandbox:
+            sandbox.container.reload()
+            host_config = sandbox.container.attrs["HostConfig"]
+            assert "ALL" in host_config["CapDrop"]
+
+    def test_readonly_rootfs(self, temp_workspace):
+        """Docker host config should mount the container root filesystem read-only."""
+        config = SandboxConfig(
+            worker_id="test-worker-security-002",
+            workspace_root=temp_workspace,
+            timeout=60,
+        )
+
+        with WorkerSandbox(config) as sandbox:
+            sandbox.container.reload()
+            host_config = sandbox.container.attrs["HostConfig"]
+            assert host_config["ReadonlyRootfs"] is True
+
+    def test_network_disabled(self, temp_workspace):
+        """Default sandbox network mode should be disabled."""
+        config = SandboxConfig(
+            worker_id="test-worker-security-003",
+            workspace_root=temp_workspace,
+            timeout=60,
+        )
+
+        with WorkerSandbox(config) as sandbox:
+            sandbox.container.reload()
+            networks = sandbox.container.attrs["NetworkSettings"]["Networks"]
+            network_mode = sandbox.container.attrs["HostConfig"]["NetworkMode"]
+            assert networks in ({}, None) or network_mode == "none"
+
+    def test_no_new_privileges(self, temp_workspace):
+        """Docker host config should prevent privilege escalation."""
+        config = SandboxConfig(
+            worker_id="test-worker-security-004",
+            workspace_root=temp_workspace,
+            timeout=60,
+        )
+
+        with WorkerSandbox(config) as sandbox:
+            sandbox.container.reload()
+            host_config = sandbox.container.attrs["HostConfig"]
+            assert "no-new-privileges:true" in host_config["SecurityOpt"]
 
     def test_timeout_cleanup(self, temp_workspace):
         """Test timeout handling and cleanup."""
@@ -171,5 +225,5 @@ class TestWorkerSandboxRealDocker:
         )
 
         with pytest.raises(ValueError, match="denied mount"):
-            with WorkerSandbox(config) as sandbox:
+            with WorkerSandbox(config):
                 pass

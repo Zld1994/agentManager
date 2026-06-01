@@ -8,19 +8,36 @@ AUDIT_SINK environment variable (default: "log").
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import uuid
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, FrozenSet, List, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, FrozenSet, List, Optional
+
+from prometheus_client import Counter
+
+if TYPE_CHECKING:
+    from agentManager.storage import ObjectStore, StateRepository
 
 
 logger = logging.getLogger("agentManager.audit")
 
 _VALID_SINKS = frozenset({"log", "db", "object_storage"})
+_DEFAULT_REDACT_FIELDS = frozenset({"api_key", "password", "token"})
+
+AUDIT_SINK_FAILURES = Counter(
+    "agentmanager_audit_sink_failures_total",
+    "Total audit sink write failures.",
+    ["sink"],
+)
 
 _override_sinks: Optional[str] = None
+_state_repository: Optional[StateRepository] = None
+_object_store: Optional[ObjectStore] = None
 
 
 def _get_audit_sinks() -> FrozenSet[str]:
@@ -42,21 +59,29 @@ def _get_audit_sinks() -> FrozenSet[str]:
     return frozenset(valid) or frozenset({"log"})
 
 
-def configure_audit_sinks(sinks: str) -> None:
+def configure_audit_sinks(
+    sinks: str,
+    repository: Optional[StateRepository] = None,
+    object_store: Optional[ObjectStore] = None,
+) -> None:
     """Set the audit sinks for the current process (in-process override).
 
     This takes precedence over the ``AUDIT_SINK`` environment variable and
     is safe to use in multi-threaded contexts.  Call
     :func:`reset_audit_sinks` to restore default behaviour.
     """
-    global _override_sinks
+    global _override_sinks, _state_repository, _object_store
     _override_sinks = sinks
+    _state_repository = repository
+    _object_store = object_store
 
 
 def reset_audit_sinks() -> None:
     """Clear the in-process sink override, reverting to env / default."""
-    global _override_sinks
+    global _override_sinks, _state_repository, _object_store
     _override_sinks = None
+    _state_repository = None
+    _object_store = None
 
 
 class AuditEventType(str, Enum):
@@ -84,27 +109,117 @@ class AuditEvent:
         return d
 
 
+class PostgresAuditSink:
+    """Audit sink backed by the configured state repository."""
+
+    def __init__(self, repository: "StateRepository"):
+        self.repository = repository
+
+    def write(self, event: AuditEvent) -> None:
+        from agentManager.storage import AuditRecord
+
+        redacted = redact_audit_event(event)
+        self.repository.append_audit_record(
+            AuditRecord(
+                action=redacted.event_type.value,
+                entity_id=redacted.resource,
+                payload={
+                    "actor": redacted.actor,
+                    "outcome": redacted.outcome,
+                    "detail": redacted.detail,
+                },
+                timestamp=_parse_event_timestamp(redacted.timestamp),
+            )
+        )
+
+
+class ObjectStoreAuditSink:
+    """Audit sink that archives one JSON object per audit event."""
+
+    def __init__(self, object_store: "ObjectStore", prefix: str = "audit"):
+        self.object_store = object_store
+        self.prefix = prefix.strip("/")
+
+    def write(self, event: AuditEvent) -> None:
+        redacted = redact_audit_event(event)
+        timestamp = _parse_event_timestamp(redacted.timestamp)
+        key = (
+            f"{self.prefix}/{timestamp:%Y-%m-%d}/{timestamp:%H}/"
+            f"{uuid.uuid4().hex}.json"
+        )
+        self.object_store.put_bytes(
+            key,
+            json.dumps(redacted.to_dict(), sort_keys=True).encode("utf-8"),
+            content_type="application/json",
+        )
+
+
+def redact_audit_event(event: AuditEvent) -> AuditEvent:
+    """Return a copy of an audit event with sensitive detail fields redacted."""
+    redacted = AuditEvent(
+        event_type=event.event_type,
+        actor=event.actor,
+        resource=event.resource,
+        outcome=event.outcome,
+        detail=_redact_value(deepcopy(event.detail), _redact_fields()),
+        timestamp=event.timestamp,
+    )
+    return redacted
+
+
+def _redact_fields() -> FrozenSet[str]:
+    raw = os.getenv("AUDIT_REDACT_FIELDS")
+    if raw is None:
+        return _DEFAULT_REDACT_FIELDS
+    fields = {field.strip().lower() for field in raw.split(",") if field.strip()}
+    return frozenset(fields)
+
+
+def _redact_value(value: Any, fields: FrozenSet[str]) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: "***REDACTED***" if str(key).lower() in fields else _redact_value(val, fields)
+            for key, val in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_value(item, fields) for item in value]
+    return value
+
+
+def _parse_event_timestamp(timestamp: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(timezone.utc)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 _custom_audit_handlers: List[Callable[[AuditEvent], None]] = []
 
 
 def record_audit_event(event: AuditEvent) -> None:
     """Emit an audit event to configured sinks."""
     sinks = _get_audit_sinks()
-    event_dict = event.to_dict()
+    redacted_event = redact_audit_event(event)
+    event_dict = redacted_event.to_dict()
 
     if "log" in sinks:
         logger.info("AUDIT", extra={"audit": event_dict})
 
     if "db" in sinks:
         try:
-            _write_to_db(event)
+            _write_to_db(redacted_event)
         except Exception:
+            AUDIT_SINK_FAILURES.labels(sink="db").inc()
             logger.exception("Failed to write audit event to database")
 
     if "object_storage" in sinks:
         try:
-            _write_to_object_storage(event)
+            _write_to_object_storage(redacted_event)
         except Exception:
+            AUDIT_SINK_FAILURES.labels(sink="object_storage").inc()
             logger.exception("Failed to write audit event to object storage")
 
     for handler in _custom_audit_handlers:
@@ -129,20 +244,16 @@ def unregister_audit_handler(handler: Callable[[AuditEvent], None]) -> None:
 
 def _write_to_db(event: AuditEvent) -> None:
     """Write audit event to database via state repository if available."""
-    logger.warning(
-        "Audit db sink is a placeholder — event %s not actually persisted. "
-        "Configure a StateRepository to enable database audit storage.",
-        event.event_type.value,
-    )
+    if _state_repository is None:
+        raise RuntimeError("Configure a StateRepository to enable database audit storage")
+    PostgresAuditSink(_state_repository).write(event)
 
 
 def _write_to_object_storage(event: AuditEvent) -> None:
     """Write audit event to object storage if available."""
-    logger.warning(
-        "Audit object_storage sink is a placeholder — event %s not actually archived. "
-        "Configure an ObjectStore to enable object storage audit archival.",
-        event.event_type.value,
-    )
+    if _object_store is None:
+        raise RuntimeError("Configure an ObjectStore to enable object storage audit archival")
+    ObjectStoreAuditSink(_object_store).write(event)
 
 
 # ── Convenience functions ────────────────────────────────────────────────────

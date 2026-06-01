@@ -4,8 +4,6 @@ import json
 import logging
 from unittest.mock import patch
 
-import pytest
-
 from agentManager.observability.logging import (
     JSONFormatter,
     StructuredLogger,
@@ -31,7 +29,6 @@ from agentManager.observability.audit import (
     unregister_audit_handler,
     _custom_audit_handlers,
     _get_audit_sinks,
-    _override_sinks,
 )
 from agentManager.observability.tracing import (
     create_span,
@@ -318,23 +315,23 @@ class TestAuditMultiSink:
                 sinks = _get_audit_sinks()
             assert sinks == frozenset({"log"})
 
-    def test_db_sink_emits_warning(self, caplog):
+    def test_db_sink_without_repository_logs_failure(self, caplog):
         configure_audit_sinks("log,db")
-        with caplog.at_level(logging.WARNING, logger="agentManager.audit"):
+        with caplog.at_level(logging.ERROR, logger="agentManager.audit"):
             record_audit_event(AuditEvent(
                 event_type=AuditEventType.TASK_EXECUTED,
                 resource="task-1",
             ))
-        assert any("placeholder" in r.getMessage().lower() for r in caplog.records)
+        assert any("database" in r.getMessage().lower() for r in caplog.records)
 
-    def test_object_storage_sink_emits_warning(self, caplog):
+    def test_object_storage_sink_without_store_logs_failure(self, caplog):
         configure_audit_sinks("log,object_storage")
-        with caplog.at_level(logging.WARNING, logger="agentManager.audit"):
+        with caplog.at_level(logging.ERROR, logger="agentManager.audit"):
             record_audit_event(AuditEvent(
                 event_type=AuditEventType.TASK_EXECUTED,
                 resource="task-1",
             ))
-        assert any("placeholder" in r.getMessage().lower() for r in caplog.records)
+        assert any("object storage" in r.getMessage().lower() for r in caplog.records)
 
     def test_register_custom_handler(self):
         received = []
@@ -348,7 +345,10 @@ class TestAuditMultiSink:
 
     def test_unregister_custom_handler(self):
         received = []
-        handler = lambda e: received.append(e)
+
+        def handler(event):
+            received.append(event)
+
         register_audit_handler(handler)
         unregister_audit_handler(handler)
         record_audit_event(AuditEvent(
@@ -383,7 +383,11 @@ class TestTracingConfiguration:
             with caplog.at_level(logging.WARNING):
                 result = setup_tracing(enabled=True)
             assert result is False
-            assert any("invalid" in r.getMessage().lower() and "protocol" in r.getMessage().lower() for r in caplog.records)
+            assert any(
+                "invalid" in r.getMessage().lower()
+                and "protocol" in r.getMessage().lower()
+                for r in caplog.records
+            )
 
     def test_invalid_sample_rate_falls_back(self, caplog):
         with patch.dict("os.environ", {

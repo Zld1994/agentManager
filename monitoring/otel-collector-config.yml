@@ -1,8 +1,7 @@
 # OpenTelemetry Collector configuration for agentManager.
 #
-# This is a development / evaluation configuration that enables all three
-# exporters (Jaeger, Zipkin, Logging) simultaneously.  For production, select
-# only the exporter(s) that match your observability stack and remove the rest.
+# This is a development / evaluation configuration that forwards traces to the
+# Jaeger all-in-one service used by docker-compose.yml.
 
 receivers:
   otlp:
@@ -18,18 +17,16 @@ processors:
     send_batch_size: 1024
 
 exporters:
-  jaeger:
-    endpoint: "jaeger:14250"
+  otlp/jaeger:
+    endpoint: "jaeger:4317"
     tls:
       insecure: true
-  zipkin:
-    endpoint: "http://zipkin:9411/api/v2/spans"
-  logging:
-    loglevel: debug
+  debug:
+    verbosity: detailed
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [batch]
-      exporters: [jaeger, zipkin, logging]
+      exporters: [otlp/jaeger, debug]
