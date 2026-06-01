@@ -160,11 +160,15 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
   helpers under `agentManager.audit`, and tracing disabled unless `OTEL_TRACING_ENABLED=true`.
 - Durable audit sinks are injected through `configure_audit_sinks(..., repository=..., object_store=...)`;
   avoid direct SQL or boto3 calls from `agentManager/observability/audit.py`.
+- FastAPI startup does not yet auto-inject durable audit sinks, and `audit_record` does not yet
+  include `content_hash`; track that remaining work under M4-E.7 in `taskList.md`.
 - `/health` checks only dependencies configured through environment variables. Default mode returns
   HTTP 200 with `status="degraded"` on dependency failure; `?strict=true` returns HTTP 503.
 - Local Docker Compose verification is still environment-dependent. Windows PowerShell may not have
   `docker`, and WSL may have Docker CLI without the Compose v2 plugin; keep Docker verification
   reports explicit about local-only blockers.
+- The `sandbox-integration` CI job should skip only when Docker is unavailable or the sandbox image
+  cannot be pulled; a successful `docker pull python:3.11-slim` should allow the integration tests to run.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
   may be generated locally. Avoid editing generated metadata by hand unless packaging behavior is
   the target of the task.
