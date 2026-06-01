@@ -56,15 +56,15 @@
 - 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。
 - 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。
 - 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。
-- 继续完善审计事件数据库和对象存储写入实现（当前为占位符）。
-- 继续为关键组件添加 OpenTelemetry 细粒度 span（检查点、内存操作、沙箱执行等）。
+- ✅ 已完成：完善审计事件数据库和对象存储写入实现。
+- ✅ 已完成：为关键组件添加 OpenTelemetry 细粒度 span（检查点、内存操作、沙箱执行等）。
 
 ## 建议的重构路线图
 
 1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。✅
 2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。✅ 已通过 RuntimeFactory 完成。
 3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。✅ 已通过 WorkflowCoordinator memory write-back 和 resume_workflow 完成。
-4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 已完成基础框架
+4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 已完成（含细粒度 span 和审计落库）
 
 ## 待处理的优化问题
 

@@ -128,27 +128,27 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-C.1 — 核心引擎 Span 覆盖（优先）
 
-- [ ] **M4-C.1.1** 为 `agentManager/engine/scheduler.py` 添加 span
+- [x] **M4-C.1.1** 为 `agentManager/engine/scheduler.py` 添加 span
   - 注入点：`schedule_task()`、`execute_next()`、调度循环入口
   - 属性：`task.id`, `task.type`, `queue.depth`, `scheduler.concurrency`
 
-- [ ] **M4-C.1.2** 为 `agentManager/engine/state_manager.py` 添加 span
+- [x] **M4-C.1.2** 为 `agentManager/engine/state_manager.py` 添加 span
   - 注入点：`transition()`、`get_state()`
   - 属性：`task.id`, `state.from`, `state.to`, `transition.reason`
 
-- [ ] **M4-C.1.3** 为 `agentManager/runtime/task_executor.py` 添加 span
+- [x] **M4-C.1.3** 为 `agentManager/runtime/task_executor.py` 添加 span
   - 注入点：`execute_task()` 入口
   - 复用已有 `trace_task(task_id, task_type)` context manager
   - 属性：`task.id`, `task.type`, `task.duration_ms`
 
-- [ ] **M4-C.1.4** 为 `agentManager/runtime/workflow_coordinator.py` 添加 span
+- [x] **M4-C.1.4** 为 `agentManager/runtime/workflow_coordinator.py` 添加 span
   - 注入点：`execute_workflow()` → 复用已有 `trace_workflow(workflow_id)` context manager
   - 注入点：`_execute_scheduled_task()`、`resume_workflow()`
   - 属性：`workflow.id`, `workflow.task_count`
 
 ### M4-C.2 — API 层 OTEL Middleware
 
-- [ ] **M4-C.2.1** 添加 FastAPI OTEL instrumentation middleware
+- [x] **M4-C.2.1** 添加 FastAPI OTEL instrumentation middleware
   - 文件：`agentManager/api.py`
   - **方案：使用 `opentelemetry-instrumentation-fastapi`**（推荐）
     - 与项目已有 OTEL SDK 集成一致，自动注入请求级 span
@@ -159,19 +159,19 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-C.3 — 外围模块 Span 覆盖
 
-- [ ] **M4-C.3.1** 为 `agentManager/engine/checkpoint.py` 添加 span
+- [x] **M4-C.3.1** 为 `agentManager/engine/checkpoint.py` 添加 span
   - 注入点：`save_checkpoint()`、`load_checkpoint()`
   - 属性：`workflow.id`, `task.id`, `checkpoint.size_bytes`
 
-- [ ] **M4-C.3.2** 为 `agentManager/memory/` 添加 span
+- [x] **M4-C.3.2** 为 `agentManager/memory/` 添加 span
   - 注入点：`store()`、`search()`、`retrieve()`
   - 属性：`memory.type`（engineering/episodic/semantic），`result.count`
 
-- [ ] **M4-C.3.3** 为 `agentManager/sandbox/worker_sandbox.py` 添加 span
+- [x] **M4-C.3.3** 为 `agentManager/sandbox/worker_sandbox.py` 添加 span
   - 注入点：`create()`、`execute()`、`destroy()`
   - 属性：`sandbox.worker_id`, `sandbox.image`, `sandbox.command`（截断到 100 字符）
 
-- [ ] **M4-C.3.4** 为 `agentManager/defect_repair/` 添加 span
+- [x] **M4-C.3.4** 为 `agentManager/defect_repair/` 添加 span
   - 注入点：流水线入口、分析阶段、修复阶段、验证阶段
   - 属性：`defect.type`, `repair.strategy`, `files.modified`
 
@@ -200,7 +200,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-D.1 — 安全参数验证测试
 
-- [ ] **M4-D.1.1** 在 `tests/integration/test_sandbox_docker.py` 中添加安全断言
+- [x] **M4-D.1.1** 在 `tests/integration/test_sandbox_docker.py` 中添加安全断言
   - `test_cap_drop_all` — 验证 `HostConfig.CapDrop` 包含 `ALL`
   - `test_readonly_rootfs` — 验证 `HostConfig.ReadonlyRootfs` 为 `true`
   - `test_network_disabled` — 验证 `NetworkSettings.Networks` 为空或 none
@@ -233,7 +233,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-E.1 — Schema 对齐检查
 
-- [ ] **M4-E.1.1** 定义 `AuditEvent` → `audit_record` 显式映射规则
+- [x] **M4-E.1.1** 定义 `AuditEvent` → `audit_record` 显式映射规则
   - **显式映射**（直接写列）：
     | AuditEvent 字段 | audit_record 列 | 说明 |
     |-----------------|-----------------|------|
@@ -253,7 +253,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-E.2 — PostgresAuditSink 实现
 
-- [ ] **M4-E.2.1** 实现 `PostgresAuditSink` 类
+- [x] **M4-E.2.1** 实现 `PostgresAuditSink` 类
   - 文件：`agentManager/observability/audit.py`
   - 接受 `StateRepository` 实例（由调用方通过 `configure_audit_sinks` 注入）
   - `write(event)` → 映射 `AuditEvent` → `AuditRecord` → 调用 `repo.append_audit_record()` 
@@ -261,7 +261,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-E.3 — ObjectStoreAuditSink 实现
 
-- [ ] **M4-E.3.1** 实现 `ObjectStoreAuditSink` 类
+- [x] **M4-E.3.1** 实现 `ObjectStoreAuditSink` 类
   - 文件：`agentManager/observability/audit.py`
   - 接受 `ObjectStore` 实例
   - **当前阶段采用每事件独立文件 + 按小时前缀聚合**：
