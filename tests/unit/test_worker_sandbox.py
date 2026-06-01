@@ -29,16 +29,11 @@ def sandbox_config():
     )
 
 
-# Session-scoped Docker mock: patches before any test runs so
-# WorkerSandbox.__init__ never calls the real daemon in CI.
-_docker_patch = patch("agentManager.sandbox.worker_sandbox.docker.from_env")
-_mock_docker = _docker_patch.start()
-
-
-@pytest.fixture(scope="class")
+@pytest.fixture
 def mock_docker_client():
-    """Provide the pre-patched Docker client to all sandbox tests."""
-    return _mock_docker.return_value
+    """Create an isolated mock Docker client for each sandbox test."""
+    with patch("agentManager.sandbox.worker_sandbox.docker.from_env") as mock:
+        yield mock.return_value
 
 
 @pytest.fixture

@@ -1,9 +1,9 @@
-# agentManager M4 任务清单 — 专家团 v3
+# agentManager M4 任务清单 — 专家团 v5
 
 > **生成时间：** 2026-06-01
-> **版本历史：** v1 初始评审 → v2 方案收敛 → v3 M4-C.5.1 闭环 + stderr 修复
+> **版本历史：** v1 初始评审 → v2 方案收敛 → v3 M4-C.5.1 闭环 + stderr 修复 → v4 补齐审计工厂注入 + 性能基准扩展 + 防篡改 → v5 校准 M4-E.7 和 CI sandbox 状态
 > **来源：** 专家团评审（独立评审 → 交叉质询 → 方案收敛）
-> **基线：** 652 测试通过 · P0/P1/P3 基础框架已完成  
+> **基线：** 652 测试通过 · P0/P1/P3 基础框架已完成
 > **核心原则：** 代码实现不阻塞于环境；验证阶段才需要 Docker。每个任务足够小，可独立验证和提交。
 
 ---
@@ -38,7 +38,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ## M4-A：基础设施就绪 🔧（不阻断其他工作流）
 
-> **目标：** Docker Compose 文档化 + CI 修复 + `/health` 增强 + OTEL Collector Compose 集成  
+> **目标：** Docker Compose 文档化 + CI 修复 + `/health` 增强 + OTEL Collector Compose 集成
 > **阻断：** 不阻断任何开发工作流。M4-C/M4-D 代码实现可与 M4-A 并行。
 
 ### M4-A.1 — CI 基准修复
@@ -76,7 +76,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
   | otel-collector | running | OTLP gRPC 4317 / HTTP 4318 |
   | jaeger | running | UI http://localhost:16686 |
 
-  `/health` 返回 `{"status": "ok", "dependencies": {"redis": "ok"}}`  
+  `/health` 返回 `{"status": "ok", "dependencies": {"redis": "ok"}}`
   Jaeger 链路：100 条，涵盖 `GET /health`、`POST /tasks`、`scheduler.add_task`
 
 - [ ] **M4-A.2.4** `docker build -f Dockerfile.prod -t agentmanager:prod .` — 生产镜像构建
@@ -117,7 +117,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ## M4-B：TODO/文档修正 📝（可立即执行）
 
-> **目标：** 路线图标记如实反映完成状态，Obsidian 审查项映射到具体 task  
+> **目标：** 路线图标记如实反映完成状态，Obsidian 审查项映射到具体 task
 > **依赖：** 无
 
 - [x] **M4-B.1** 修正 TODO.md 路线图标记
@@ -141,8 +141,8 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ## M4-C：OTEL 细粒度 Span 覆盖 📡（P1）
 
-> **目标：** 从「基础设施已有但零接入」→ 核心路径 8+ 模块有 span  
-> **前置审计发现：** `trace_workflow` / `trace_task` / `create_span` 全代码库零调用  
+> **目标：** 从「基础设施已有但零接入」→ 核心路径 8+ 模块有 span
+> **前置审计发现：** `trace_workflow` / `trace_task` / `create_span` 全代码库零调用
 > **原则：** C1（核心引擎）优先于 C2（外围模块）；代码不依赖 Docker；E2E 验证依赖 M4-A.4
 
 ### M4-C.1 — 核心引擎 Span 覆盖（优先）
@@ -228,7 +228,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ## M4-D：沙箱安全验证 🛡️（P1）
 
-> **前置审计发现：** `cap_drop=["ALL"]` 已硬编码在 `worker_sandbox.py:197`。  
+> **前置审计发现：** `cap_drop=["ALL"]` 已硬编码在 `worker_sandbox.py:197`。
 > 本工作流为**验证已有实现**，非新增功能。
 
 ### M4-D.1 — 安全参数验证测试
@@ -260,8 +260,8 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ## M4-E：审计落库 🗄️（P1）
 
-> **前置审计发现：** `audit_record` 表已在 `postgres.py:130-137` 通过 `initialize_schema()` 内联创建。  
-> 现有 schema：`id BIGSERIAL, action TEXT, entity_id TEXT, payload JSONB, timestamp TIMESTAMPTZ`  
+> **前置审计发现：** `audit_record` 表已在 `postgres.py:130-137` 通过 `initialize_schema()` 内联创建。
+> 现有 schema：`id BIGSERIAL, action TEXT, entity_id TEXT, payload JSONB, timestamp TIMESTAMPTZ`
 > **原则：** 复用 `StateRepository.append_audit_record()` 和 `ObjectStore.put_bytes()`
 
 ### M4-E.1 — Schema 对齐检查
@@ -289,7 +289,7 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 - [x] **M4-E.2.1** 实现 `PostgresAuditSink` 类
   - 文件：`agentManager/observability/audit.py`
   - 接受 `StateRepository` 实例（由调用方通过 `configure_audit_sinks` 注入）
-  - `write(event)` → 映射 `AuditEvent` → `AuditRecord` → 调用 `repo.append_audit_record()` 
+  - `write(event)` → 映射 `AuditEvent` → `AuditRecord` → 调用 `repo.append_audit_record()`
   - **不在 audit.py 中直接操作数据库连接**——复用 StateRepository 已有的连接池
 
 ### M4-E.3 — ObjectStoreAuditSink 实现
@@ -347,11 +347,27 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
   - 将 `_write_to_db` 和 `_write_to_object_storage` 从占位符函数改为调用 Sink 类
   - 不再输出 "audit event NOT actually written to DB" WARNING
 
+### M4-E.7 — App Startup 注入
+
+- [ ] **M4-E.7.1** 在应用启动时将审计 Sink 注入 RuntimeFactory
+  - 文件：`agentManager/api.py`（FastAPI lifespan / startup）
+  - 逻辑：根据 `DATABASE_URL` 和 `OBJECT_STORE_*` 环境变量是否存在，创建 `StateRepository` 和 `ObjectStore` 实例，通过 `configure_audit_sinks()` 注入
+  - 复用 RuntimeFactory 已有的连接创建模式（`_create_state_machine` / `_create_checkpoint_manager`）
+  - 验证：启动应用后 `_get_audit_sinks()` 返回正确值，`/metrics` 包含 `audit_sink_failures` 计数器
+  - 状态校准（2026-06-02）：`configure_audit_sinks()` 已存在，但 `agentManager/api.py` 尚未在启动路径注入 repository/object_store。
+
+- [ ] **M4-E.7.2** 审计事件防篡改基础
+  - 在 `audit_record` 表添加 `content_hash TEXT` 列（可选，DDL 用 `DO $$ ... IF NOT EXISTS ... END $$` 包裹）
+  - `PostgresAuditSink.write()` 写入时计算 `hashlib.sha256(json.dumps(payload, sort_keys=True)).hexdigest()` 存入 `content_hash`
+  - 验证：读取审计记录时可通过 `content_hash` 校验数据完整性
+  - 注意：此为非加密签名，仅防意外篡改；如需防恶意篡改，后续引入 HMAC 密钥签名
+  - 状态校准（2026-06-02）：`audit_record` schema 和 `PostgresAuditSink.write()` 尚未实现 `content_hash`。
+
 ---
 
 ## M4-F：配置与文档同步 📋（P2）
 
-> **依赖：** M4-C、M4-E 的输出（新增环境变量和配置项）  
+> **依赖：** M4-C、M4-E 的输出（新增环境变量和配置项）
 > **目标：** 确保配置文件、文档与代码实现一致
 
 ### M4-F.1 — 配置文件更新
@@ -379,6 +395,13 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
   - 比较 OTEL 启用/禁用时的 P50/P99 延迟
   - 预期：开销 < 1ms/span
   - 记录到 `docs/reports/otel-span-performance-benchmark-2026-06-01.md`
+  - 状态校准（2026-06-02）：已有 HTTP baseline 报告，但报告明确 `OTEL_TRACING_ENABLED=false`，尚未完成 OTEL 启用/禁用对比。
+
+- [ ] **M4-F.3.2** 测量审计写入对关键路径的性能影响
+  - 测试对象：`record_audit_event()` 在 log / db / object_storage 三种 sink 下的延迟
+  - 比较审计启用/禁用时的 P50/P99 延迟
+  - 预期：log sink 开销 < 0.1ms/event，db sink < 5ms/event，object_storage sink < 50ms/event
+  - 记录到 `docs/reports/audit-write-performance-benchmark-2026-06-01.md`
 
 ---
 
@@ -494,7 +517,8 @@ M4-E (审计落库)      ← 不依赖 Docker
     ├── M4-E.3 (ObjectStoreAuditSink)
     ├── M4-E.4 (脱敏)
     ├── M4-E.5 (降级)
-    └── M4-E.6 (测试)
+    ├── M4-E.6 (测试)
+    └── M4-E.7 (App Startup 注入)
 
 M4-F (配置同步)      ← 依赖 M4-C、M4-E 输出
     ├── M4-F.1 (配置文件)
@@ -504,4 +528,4 @@ M4-F (配置同步)      ← 依赖 M4-C、M4-E 输出
 
 ---
 
-> **下一步：** M4-C.5.1 ✅ 已闭环。剩余：M4-A.2（本地 Docker 验证）、M4-D.1.2（沙箱安全集成测试，需 Docker SDK）、M4-F.3（OTEL 性能基准）。Docker SDK 依赖可先在 CI 的 `sandbox-integration` job 中验证。
+> **下一步：** M4-C.5.1 ✅ 已闭环；M4-D.2.2 的 CI job 已存在，且 2026-06-02 已修复镜像拉取成功仍跳过测试的问题。剩余：M4-A.1.2（CI Redis 连接结果确认）、M4-A.2.4（生产镜像构建本地验证）、M4-D.1.2（沙箱安全集成测试实际运行）、M4-E.7.1/M4-E.7.2（审计启动注入与 content_hash）、M4-F.3.1（OTEL 启用/禁用性能对比）、M4-F.3.2（审计写入性能基准）。

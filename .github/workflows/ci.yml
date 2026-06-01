@@ -186,7 +186,11 @@ jobs:
 
       - name: Pull sandbox image
         if: env.SKIP_SANDBOX_TESTS != '1'
-        run: docker pull python:3.11-slim || echo "Image pull failed, skipping sandbox tests" && echo "SKIP_SANDBOX_TESTS=1" >> $GITHUB_ENV
+        run: |
+          if ! docker pull python:3.11-slim; then
+            echo "Image pull failed, skipping sandbox tests"
+            echo "SKIP_SANDBOX_TESTS=1" >> $GITHUB_ENV
+          fi
 
       - name: Run Docker sandbox integration tests
         if: env.SKIP_SANDBOX_TESTS != '1'
