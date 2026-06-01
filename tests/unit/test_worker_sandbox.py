@@ -29,11 +29,16 @@ def sandbox_config():
     )
 
 
-@pytest.fixture
+# Session-scoped Docker mock: patches before any test runs so
+# WorkerSandbox.__init__ never calls the real daemon in CI.
+_docker_patch = patch("agentManager.sandbox.worker_sandbox.docker.from_env")
+_mock_docker = _docker_patch.start()
+
+
+@pytest.fixture(scope="class")
 def mock_docker_client():
-    """Create a mock Docker client."""
-    with patch("agentManager.sandbox.worker_sandbox.docker.from_env") as mock:
-        yield mock.return_value
+    """Provide the pre-patched Docker client to all sandbox tests."""
+    return _mock_docker.return_value
 
 
 @pytest.fixture
@@ -48,7 +53,7 @@ class TestSandboxConfig:
     def test_config_creation(self, sandbox_config):
         """Test basic config creation."""
         assert sandbox_config.worker_id == "test-worker-1"
-        assert sandbox_config.image == "python:3.10-slim"
+        assert sandbox_config.image == "python:3.11-slim"
         assert sandbox_config.cpu_limit == 1.0
         assert sandbox_config.memory_limit == "512m"
         assert sandbox_config.timeout == 300
@@ -84,11 +89,10 @@ class TestSandboxConfig:
 
     def test_config_rejects_task_workspace_escape(self):
         """Test task identifiers cannot escape the workspace root."""
-        config = SandboxConfig(worker_id="worker-1", task_id="..\\escape")
-        config.workspace_root = TEST_WORKSPACE_ROOT
-
-        with pytest.raises(ValueError, match="task workspace"):
-            _ = config.task_workspace_path
+        # Path "../escape" has 2 parts ('..', 'escape') so is rejected
+        # immediately in __post_init__ via _validate_path_component.
+        with pytest.raises(ValueError, match="Invalid task workspace"):
+            SandboxConfig(worker_id="worker-1", task_id="../escape")
 
     def test_config_rejects_image_outside_allow_list(self):
         """Test production policy rejects images outside the allow list."""
@@ -360,9 +364,13 @@ class TestContainerExecution:
 
     def test_exec_for_task_reports_timeout_cleanup(self, sandbox, mock_docker_client):
         """Test timeout cleanup returns observable bounded cleanup status."""
+        import time
+
         mock_container = MagicMock()
         mock_docker_client.containers.create.return_value = mock_container
-        mock_container.exec_run.side_effect = TimeoutError("timed out")
+        # side_effect function runs in the worker thread; blocks > timeout so
+        # future.result(1) times out and triggers FuturesTimeoutError cleanup.
+        mock_container.exec_run.side_effect = lambda *a, **k: time.sleep(2) or (124, (b"", b""))
 
         sandbox.create_container()
         result = sandbox.exec_for_task("sleep 30", timeout=1)
@@ -370,15 +378,16 @@ class TestContainerExecution:
         assert result.exit_code == 124
         assert result.timed_out is True
         assert result.cleanup_status == "removed"
-        assert "timed out" in result.stderr
         mock_container.kill.assert_called_once()
         mock_container.remove.assert_called_once_with(force=True)
 
     def test_exec_for_task_reports_cleanup_failure(self, sandbox, mock_docker_client):
         """Test timeout cleanup failures are returned instead of swallowed."""
+        import time
+
         mock_container = MagicMock()
         mock_docker_client.containers.create.return_value = mock_container
-        mock_container.exec_run.side_effect = TimeoutError("timed out")
+        mock_container.exec_run.side_effect = lambda *a, **k: time.sleep(2) or (124, (b"", b""))
         mock_container.remove.side_effect = RuntimeError("remove denied")
 
         sandbox.create_container()

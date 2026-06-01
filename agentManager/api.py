@@ -370,10 +370,15 @@ def create_task(request: TaskRequest):
         )
 
         # Publish event
+        from agentManager.observability.logging import get_request_id
         event_bus.publish(Event(
             event_type=EventType.TASK_CREATED,
             workflow_id="default",
-            payload={"task_id": request.node_id, "task_type": request.task_type},
+            payload={
+                "task_id": request.node_id,
+                "task_type": request.task_type,
+                "correlation_id": get_request_id() or "unknown",
+            },
         ))
 
         return {
