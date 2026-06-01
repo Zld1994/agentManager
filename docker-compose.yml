@@ -25,7 +25,7 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-agentmanager}
-      OTEL_TRACING_ENABLED: ${OTEL_TRACING_ENABLED:-false}
+      OTEL_TRACING_ENABLED: ${OTEL_TRACING_ENABLED:-true}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       AUDIT_SINK: ${AUDIT_SINK:-log}
       AUDIT_REDACT_FIELDS: ${AUDIT_REDACT_FIELDS:-api_key,password,token}

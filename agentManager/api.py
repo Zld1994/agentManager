@@ -24,15 +24,16 @@ from agentManager.observability.logging import (
     set_request_context,
     clear_request_context,
 )
-from agentManager.observability.tracing import setup_tracing
+from agentManager.observability.tracing import setup_tracing  # noqa: F401
+
+# Initialise tracing (no-op unless OTEL_TRACING_ENABLED=true)
+# Moved here so structured logging (setup_logging above) is active before OTEL init
+setup_tracing()
 from agentManager.runtime.factory import create_runtime
 
 # Configure structured logging (JSON by default, respects LOG_LEVEL/LOG_JSON env)
 setup_logging()
 logger = logging.getLogger(__name__)
-
-# Initialise tracing (no-op unless OTEL_TRACING_ENABLED=true)
-setup_tracing()
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
 
 

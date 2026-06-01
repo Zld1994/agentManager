@@ -74,7 +74,7 @@ class TestWorkerSandboxRealDocker:
         )
 
         with WorkerSandbox(config) as sandbox:
-            exit_code, stdout, stderr = sandbox.exec_in(">&2 echo 'error message'")
+            exit_code, stdout, stderr = sandbox.exec_in("sh -c \"echo 'error message' 1>&2\"")
 
             assert exit_code == 0
             assert "error message" in stderr

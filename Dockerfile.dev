@@ -11,7 +11,7 @@ COPY agentManager ./agentManager
 COPY scheduler ./scheduler
 
 RUN pip install --upgrade pip \
-    && pip install -e ".[dev]"
+    && pip install -e ".[dev,otel]"
 
 VOLUME ["/app"]
 
