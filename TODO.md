@@ -49,19 +49,21 @@
 - ✅ `docker-compose.yml` 已加入 OTEL Collector 和 Jaeger 服务，agentmanager 服务已接入 OTEL/AUDIT 环境变量。
 - ✅ CI 已新增 `docker-verify` job，覆盖 `docker compose config`、生产镜像构建和开发镜像构建。
 - ✅ **M4-C.5.1 E2E 闭环**：`OTEL_TRACING_ENABLED=true`，Jaeger UI 显示 `agentManager` 服务链路
-- ✅ **M4-A.2 本地闭环（4/5 子项）**：`docker compose config` ✅、`build` ✅、`up -d` 7服务 healthy ✅、`down` 干净 ✅；`Dockerfile.prod` 构建待测试
+- ✅ **M4-A.2 本地闭环（5/5 子项）**：`docker compose config` ✅、`build` ✅、`up -d` 7服务 healthy ✅、`Dockerfile.prod` 构建 ✅、`down` 干净 ✅
 - ✅ `sandbox-integration` CI job 的跳过条件已修复：`docker pull python:3.11-slim` 成功时不再错误设置 `SKIP_SANDBOX_TESTS=1`
-- ⚠️ 沙箱集成测试（M4-D.1.2）仍待实际运行验证：本地未运行 Docker 集成测试，需查看 GitHub Actions `sandbox-integration` job 结果
-- ⚠️ 生产镜像构建（M4-A.2.4）待测试
-- 后续：测试 `docker build -f Dockerfile.prod`；在 CI 查看 `sandbox-integration` job 结果；补齐 M4-E.7 启动注入与 `content_hash`
+- ✅ 生产镜像构建（M4-A.2.4）已通过 WSL Docker 验证：`agentmanager:prod` 构建成功，镜像大小 `117826839` bytes（约 112.4 MiB）。
+- ✅ 沙箱集成测试（M4-D.1.2）已查看 GitHub Actions run `26769717318`：`sandbox-integration` job 成功，`Pull sandbox image` 与 `Run Docker sandbox integration tests` 均为 success；本地 PowerShell `.venv312` 命令因无 Docker 为 `13 skipped`。
+- ✅ M4-E.7 启动注入与 `content_hash` 已补齐：FastAPI 启动路径注入 durable audit sink，`audit_record.content_hash` 写入脱敏 payload 的 SHA-256。
+- ✅ M4-F.3 性能基准已补齐：OTEL span 与 audit write 两份基准报告均已生成并满足阈值。
+- ⚠️ 最新 CI run `26769717318` 整体仍为 failure：`docker-verify` 与 `sandbox-integration` 成功，但 Python 3.10/3.12 覆盖率阈值失败，Python 3.11 core mypy 失败。
 
 ## Obsidian 审查中的待修复项
 
-- 在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。→ M4-A.2 ⚠️ A.2.4 待测试
+- ✅ 已完成：在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。→ M4-A.2
 - 确保未来的静态完成报告从 CI 支持的测试状态生成，而不是手写的时间点声明。→ M4-A.5
 - 在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。→ M4-D
 - ✅ 已完成：完善审计事件数据库和对象存储写入实现。→ M4-E.1-M4-E.6
-- ⚠️ 待完成：应用启动时注入审计 sink，以及 `audit_record.content_hash` 防篡改基础。→ M4-E.7
+- ✅ 已完成：应用启动时注入审计 sink，以及 `audit_record.content_hash` 防篡改基础。→ M4-E.7
 - ✅ 已完成：为关键组件添加 OpenTelemetry 细粒度 span（检查点、内存操作、沙箱执行等）。→ M4-C
 
 ## 建议的重构路线图
@@ -69,7 +71,7 @@
 1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。✅
 2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。✅ 已通过 RuntimeFactory 完成。
 3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。✅ 已通过 WorkflowCoordinator memory write-back 和 resume_workflow 完成。
-4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 基础框架、M4-C span 覆盖、M4-E.1-M4-E.6 审计落库已完成 / ⏳ M4-D.1.2、M4-E.7、M4-F.3 收尾
+4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 基础框架、M4-C span 覆盖、M4-D.1.2、M4-E 审计落库与启动注入、M4-F.3 性能基准已完成
 
 ## 待处理的优化问题
 

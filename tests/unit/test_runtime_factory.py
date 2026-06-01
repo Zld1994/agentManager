@@ -5,10 +5,9 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from agentManager.runtime.factory import (
     Runtime,
+    configure_runtime_audit_sinks,
     _create_checkpoint_manager,
     _create_event_bus,
     _create_memory_system,
@@ -133,6 +132,86 @@ class TestCreateMemorySystem:
         assert isinstance(mem, MemorySystem)
         assert mem.backend == "sqlite"
         mem.close()
+
+
+class TestConfigureRuntimeAuditSinks:
+    def test_no_durable_sinks_when_only_log_is_configured(self):
+        settings = {
+            "database_url": "",
+            "object_store_endpoint": "",
+            "object_store_bucket": "",
+            "object_store_access_key": "",
+            "object_store_secret_key": "",
+        }
+
+        with patch("agentManager.runtime.factory.configure_audit_sinks") as configure:
+            configure_runtime_audit_sinks(settings, audit_sink="log")
+
+        configure.assert_called_once_with("log", repository=None, object_store=None)
+
+    def test_database_url_injects_postgres_audit_repository(self):
+        repository = MagicMock()
+        mock_module = MagicMock()
+        mock_module.PostgresStateRepository.from_database_url.return_value = repository
+        settings = {
+            "database_url": "postgresql://user:pass@host/db",
+            "object_store_endpoint": "",
+            "object_store_bucket": "",
+            "object_store_access_key": "",
+            "object_store_secret_key": "",
+        }
+
+        with patch.dict("sys.modules", {"agentManager.storage.postgres": mock_module}):
+            with patch("agentManager.runtime.factory.configure_audit_sinks") as configure:
+                configure_runtime_audit_sinks(settings, audit_sink="log,db")
+
+        repository.initialize_schema.assert_called_once()
+        configure.assert_called_once_with("log,db", repository=repository, object_store=None)
+
+    def test_object_store_env_injects_object_storage_audit_sink(self):
+        store = MagicMock()
+        mock_module = MagicMock()
+        mock_module.S3ObjectStore.from_settings.return_value = store
+        settings = {
+            "database_url": "",
+            "object_store_endpoint": "http://minio:9000",
+            "object_store_bucket": "agentmanager",
+            "object_store_access_key": "key",
+            "object_store_secret_key": "secret",
+        }
+
+        with patch.dict("sys.modules", {"agentManager.storage.object_store": mock_module}):
+            with patch("agentManager.runtime.factory.configure_audit_sinks") as configure:
+                configure_runtime_audit_sinks(settings, audit_sink="log,object_storage")
+
+        mock_module.S3ObjectStore.from_settings.assert_called_once_with(
+            endpoint_url="http://minio:9000",
+            bucket="agentmanager",
+            access_key="key",
+            secret_key="secret",
+        )
+        configure.assert_called_once_with(
+            "log,object_storage",
+            repository=None,
+            object_store=store,
+        )
+
+    def test_durable_sink_initialization_failure_falls_back_to_log(self):
+        mock_module = MagicMock()
+        mock_module.PostgresStateRepository.from_database_url.side_effect = RuntimeError("db down")
+        settings = {
+            "database_url": "postgresql://user:pass@host/db",
+            "object_store_endpoint": "",
+            "object_store_bucket": "",
+            "object_store_access_key": "",
+            "object_store_secret_key": "",
+        }
+
+        with patch.dict("sys.modules", {"agentManager.storage.postgres": mock_module}):
+            with patch("agentManager.runtime.factory.configure_audit_sinks") as configure:
+                configure_runtime_audit_sinks(settings, audit_sink="log,db")
+
+        configure.assert_called_once_with("log", repository=None, object_store=None)
 
 
 class TestCreateRuntime:

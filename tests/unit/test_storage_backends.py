@@ -22,6 +22,24 @@ def test_audit_record_uses_timezone_aware_timestamp():
     record = AuditRecord(action="state_changed", entity_id="task_1", payload={})
 
     assert record.timestamp.tzinfo is timezone.utc
+    assert record.content_hash is None
+
+
+def test_postgres_initialize_schema_adds_audit_content_hash_column():
+    """Schema setup should add the optional content_hash column compatibly."""
+    connection = MagicMock()
+    cursor_context = connection.cursor.return_value
+    cursor = cursor_context.__enter__.return_value
+
+    repository = PostgresStateRepository(connection)
+    repository.initialize_schema()
+
+    statements = [call.args[0] for call in cursor.execute.call_args_list]
+    assert any("content_hash" in statement for statement in statements)
+    assert any(
+        "ALTER TABLE audit_record ADD COLUMN content_hash TEXT" in statement
+        for statement in statements
+    )
 
 
 def test_postgres_state_repository_persists_state_transition_and_audit_record():
@@ -47,7 +65,12 @@ def test_postgres_state_repository_persists_state_transition_and_audit_record():
         to_state=TaskState.READY,
         reason="dependency met",
     )
-    record = AuditRecord(action="task_state_transitioned", entity_id="task_1", payload={})
+    record = AuditRecord(
+        action="task_state_transitioned",
+        entity_id="task_1",
+        payload={},
+        content_hash="abc123",
+    )
 
     repository.save_task_state("task_1", TaskState.READY)
     assert repository.load_task_state("task_1") == TaskState.READY
@@ -57,6 +80,10 @@ def test_postgres_state_repository_persists_state_transition_and_audit_record():
 
     assert cursor.execute.call_count == 5
     connection.commit.assert_called()
+
+    audit_insert = cursor.execute.call_args_list[-1]
+    assert "content_hash" in audit_insert.args[0]
+    assert audit_insert.args[1][-1] == "abc123"
 
 
 def test_postgres_state_repository_persists_workflows_and_task_runs():

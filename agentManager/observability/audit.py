@@ -9,6 +9,7 @@ AUDIT_SINK environment variable (default: "log").
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import uuid
@@ -119,16 +120,18 @@ class PostgresAuditSink:
         from agentManager.storage import AuditRecord
 
         redacted = redact_audit_event(event)
+        payload = {
+            "actor": redacted.actor,
+            "outcome": redacted.outcome,
+            "detail": redacted.detail,
+        }
         self.repository.append_audit_record(
             AuditRecord(
                 action=redacted.event_type.value,
                 entity_id=redacted.resource,
-                payload={
-                    "actor": redacted.actor,
-                    "outcome": redacted.outcome,
-                    "detail": redacted.detail,
-                },
+                payload=payload,
                 timestamp=_parse_event_timestamp(redacted.timestamp),
+                content_hash=_content_hash(payload),
             )
         )
 
@@ -194,6 +197,12 @@ def _parse_event_timestamp(timestamp: str) -> datetime:
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed.astimezone(timezone.utc)
+
+
+def _content_hash(payload: Dict[str, Any]) -> str:
+    """Return a stable non-secret integrity hash for an audit payload."""
+    encoded = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 _custom_audit_handlers: List[Callable[[AuditEvent], None]] = []

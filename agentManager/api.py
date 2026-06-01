@@ -24,17 +24,17 @@ from agentManager.observability.logging import (
     set_request_context,
     clear_request_context,
 )
-from agentManager.observability.tracing import setup_tracing  # noqa: F401
-
-# Initialise tracing (no-op unless OTEL_TRACING_ENABLED=true)
-# Moved here so structured logging (setup_logging above) is active before OTEL init
-setup_tracing()
-from agentManager.runtime.factory import create_runtime
+from agentManager.config.settings import get_durable_backend_settings
+from agentManager.observability.tracing import setup_tracing
+from agentManager.runtime.factory import configure_runtime_audit_sinks, create_runtime
 
 # Configure structured logging (JSON by default, respects LOG_LEVEL/LOG_JSON env)
 setup_logging()
 logger = logging.getLogger(__name__)
 TASK_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]+$")
+
+# Initialise tracing (no-op unless OTEL_TRACING_ENABLED=true).
+setup_tracing()
 
 
 def utc_now() -> datetime:
@@ -77,7 +77,9 @@ async def request_correlation_middleware(request: Request, call_next):
         clear_request_context()
 
 # Initialize core engines via RuntimeFactory
-_runtime = create_runtime()
+_runtime_settings = get_durable_backend_settings()
+configure_runtime_audit_sinks(_runtime_settings)
+_runtime = create_runtime(settings=_runtime_settings)
 dag_engine = _runtime.dag_engine
 state_machine = _runtime.state_machine
 event_bus = _runtime.event_bus

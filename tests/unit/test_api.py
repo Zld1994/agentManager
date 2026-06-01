@@ -50,6 +50,27 @@ class TestApplicationStartup:
         assert result.returncode == 0, result.stderr
         assert "OK" in result.stdout.strip().splitlines()
 
+    def test_api_startup_configures_runtime_audit_sinks(self):
+        """Importing the API should wire audit sinks from runtime settings."""
+        code = (
+            "from unittest.mock import patch\n"
+            "target = 'agentManager.runtime.factory.configure_runtime_audit_sinks'\n"
+            "with patch(target) as configure:\n"
+            "    from agentManager.api import app\n"
+            "    assert app is not None\n"
+            "    configure.assert_called_once()\n"
+            "print('OK')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert result.returncode == 0, result.stderr
+        assert "OK" in result.stdout.strip().splitlines()
+
     @pytest.mark.parametrize(
         "module_name",
         [
@@ -157,8 +178,6 @@ class TestTaskCreation:
 
     def test_create_task_adds_request_id_to_event_payload(self, client):
         """Task creation events should carry request correlation IDs."""
-        import json as json_module
-
         with patch.object(event_bus, "publish", wraps=event_bus.publish) as mock_publish:
             response = client.post(
                 "/tasks",

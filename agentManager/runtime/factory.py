@@ -19,6 +19,7 @@ from agentManager.engine.dag import DAGEngine
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine
 from agentManager.memory.engineering_memory import EngineeringMemory
+from agentManager.observability.audit import configure_audit_sinks
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,11 @@ def _create_checkpoint_manager(settings: dict[str, str]) -> Any:
             access_key=access_key,
             secret_key=secret_key,
         )
-        logger.info("CheckpointManager backed by object store at %s/%s", _mask_url(endpoint), bucket)
+        logger.info(
+            "CheckpointManager backed by object store at %s/%s",
+            _mask_url(endpoint),
+            bucket,
+        )
         return ObjectStoreCheckpointManager(object_store=store)
     except Exception as exc:
         logger.warning(
@@ -185,6 +190,78 @@ def _create_engineering_memory(settings: dict[str, str]) -> Optional[Engineering
             exc,
         )
         return None
+
+
+def configure_runtime_audit_sinks(
+    settings: dict[str, str],
+    audit_sink: Optional[str] = None,
+) -> None:
+    """Wire process audit sinks from durable backend settings.
+
+    Durable audit outputs are opt-in. If a requested durable sink cannot be
+    created, it is dropped and the process keeps the log sink enabled.
+    """
+    raw_sinks = audit_sink if audit_sink is not None else os.getenv("AUDIT_SINK", "log")
+    requested = [sink.strip().lower() for sink in raw_sinks.split(",") if sink.strip()]
+    if not requested:
+        requested = ["log"]
+
+    configured: list[str] = []
+    repository = None
+    object_store = None
+
+    if "log" in requested:
+        configured.append("log")
+
+    if "db" in requested:
+        database_url = settings.get("database_url", "")
+        if database_url:
+            try:
+                from agentManager.storage.postgres import PostgresStateRepository
+
+                repository = PostgresStateRepository.from_database_url(database_url)
+                repository.initialize_schema()
+                configured.append("db")
+                logger.info("Audit db sink backed by PostgreSQL at %s", _mask_url(database_url))
+            except Exception as exc:
+                logger.warning("Failed to initialise audit db sink, using log sink only: %s", exc)
+        else:
+            logger.warning("AUDIT_SINK requested db but DATABASE_URL is not configured")
+
+    if "object_storage" in requested:
+        endpoint = settings.get("object_store_endpoint", "")
+        bucket = settings.get("object_store_bucket", "")
+        if endpoint and bucket:
+            try:
+                from agentManager.storage.object_store import S3ObjectStore
+
+                object_store = S3ObjectStore.from_settings(
+                    endpoint_url=endpoint,
+                    bucket=bucket,
+                    access_key=settings.get("object_store_access_key", ""),
+                    secret_key=settings.get("object_store_secret_key", ""),
+                )
+                configured.append("object_storage")
+                logger.info(
+                    "Audit object sink backed by object store at %s/%s",
+                    _mask_url(endpoint),
+                    bucket,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to initialise audit object storage sink, using remaining sinks: %s",
+                    exc,
+                )
+        else:
+            logger.warning(
+                "AUDIT_SINK requested object_storage but OBJECT_STORE_ENDPOINT "
+                "or OBJECT_STORE_BUCKET is not configured"
+            )
+
+    if not configured:
+        configured = ["log"]
+
+    configure_audit_sinks(",".join(configured), repository=repository, object_store=object_store)
 
 
 def create_runtime(

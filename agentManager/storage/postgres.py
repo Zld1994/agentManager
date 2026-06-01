@@ -25,6 +25,7 @@ class AuditRecord:
     entity_id: str
     payload: dict[str, Any]
     timestamp: datetime = field(default_factory=utc_now)
+    content_hash: Optional[str] = None
 
 
 class StateRepository(ABC):
@@ -132,8 +133,22 @@ class PostgresStateRepository(StateRepository):
                 action TEXT NOT NULL,
                 entity_id TEXT NOT NULL,
                 payload JSONB NOT NULL,
-                timestamp TIMESTAMPTZ NOT NULL
+                timestamp TIMESTAMPTZ NOT NULL,
+                content_hash TEXT
             )
+            """,
+            """
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'audit_record'
+                      AND column_name = 'content_hash'
+                ) THEN
+                    ALTER TABLE audit_record ADD COLUMN content_hash TEXT;
+                END IF;
+            END $$
             """,
             """
             CREATE INDEX IF NOT EXISTS idx_audit_payload
@@ -210,14 +225,16 @@ class PostgresStateRepository(StateRepository):
         with self.connection.cursor() as cursor:
             cursor.execute(
                 """
-                INSERT INTO audit_record (action, entity_id, payload, timestamp)
-                VALUES (%s, %s, %s::jsonb, %s)
+                INSERT INTO audit_record
+                (action, entity_id, payload, timestamp, content_hash)
+                VALUES (%s, %s, %s::jsonb, %s, %s)
                 """,
                 (
                     record.action,
                     record.entity_id,
                     json.dumps(record.payload),
                     record.timestamp,
+                    record.content_hash,
                 ),
             )
         self.connection.commit()

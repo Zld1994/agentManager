@@ -158,15 +158,18 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
   should mock PostgreSQL, object storage, Redis, and Qdrant unless explicitly integration-scoped.
 - Observability defaults are local-safe: text logs, `X-Request-ID` request correlation, audit
   helpers under `agentManager.audit`, and tracing disabled unless `OTEL_TRACING_ENABLED=true`.
-- Durable audit sinks are injected through `configure_audit_sinks(..., repository=..., object_store=...)`;
-  avoid direct SQL or boto3 calls from `agentManager/observability/audit.py`.
-- FastAPI startup does not yet auto-inject durable audit sinks, and `audit_record` does not yet
-  include `content_hash`; track that remaining work under M4-E.7 in `taskList.md`.
+- Durable audit sinks are injected through RuntimeFactory startup wiring via
+  `configure_runtime_audit_sinks(...)`, which delegates to
+  `configure_audit_sinks(..., repository=..., object_store=...)`; avoid direct SQL or boto3 calls
+  from `agentManager/observability/audit.py`.
+- `audit_record` includes a `content_hash` column for a SHA-256 integrity hash of the redacted
+  audit payload. This is not an HMAC signature and should not be treated as tamper-proof against a
+  malicious writer.
 - `/health` checks only dependencies configured through environment variables. Default mode returns
   HTTP 200 with `status="degraded"` on dependency failure; `?strict=true` returns HTTP 503.
 - Local Docker Compose verification is still environment-dependent. Windows PowerShell may not have
-  `docker`, and WSL may have Docker CLI without the Compose v2 plugin; keep Docker verification
-  reports explicit about local-only blockers.
+  `docker`; WSL Docker Engine and Compose v2 can be used with `wsl --cd /mnt/h/AllProject/agentManager ...`
+  when available. Keep Docker verification reports explicit about local-only blockers.
 - The `sandbox-integration` CI job should skip only when Docker is unavailable or the sandbox image
   cannot be pulled; a successful `docker pull python:3.11-slim` should allow the integration tests to run.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
