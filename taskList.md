@@ -15,7 +15,7 @@
 |------|------|
 | **存储抽象复用** | 审计 Sink 通过 `StateRepository.append_audit_record()` 和 `ObjectStore.put_bytes()` 写数据，**不**在 observability 层直接写 SQL / boto3 |
 | **工厂注入** | 配置通过 `configure_audit_sinks()` 注入，连接池复用 RuntimeFactory 创建的后端连接 |
-| **数据库 Schema** | 已有 `postgres.py:initialize_schema()` 内联建表（`audit_record` 已存在），**不**引入独立迁移框架；如需新增列用 `ALTER TABLE IF NOT EXISTS` |
+| **数据库 Schema** | 已有 `postgres.py:initialize_schema()` 内联建表（`audit_record` 已存在），**不**引入独立迁移框架；如需新增列用 `DO $$ ... IF NOT EXISTS ... END $$` 包裹：`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='audit_record' AND column_name='col') THEN ALTER TABLE audit_record ADD COLUMN col TEXT; END IF; END $$` |
 | **OTEL 语义约定** | Span 属性名使用点号分隔（`workflow.id`），遵循 OTel 语义约定；已有 `tracing.py` 已遵循此规范 |
 | **审计降级策略** | db sink 失败 → 不丢事件（log sink 先写），但需增加失败计数器 |
 | **OTEL 降级** | `tracing.py` 已有完整 no-op 机制，Collector 不可用时不影响业务 |
@@ -42,12 +42,12 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 ### M4-A.1 — CI 基准修复
 
-- [ ] **M4-A.1.1** 修复 CI `REDIS_URL` 占位符
+- [ ] **M4-A.1.1** 验证并修复 CI `REDIS_URL` 配置
   - 文件：`.github/workflows/ci.yml` 第 66、80、104 行
-  - 问题：`REDIS_URL: redis://localhost:***@localhost:5432/agentmanager_test`（密码是占位符、端口是 PostgreSQL 端口）
-  - 修复：全部改为 `REDIS_URL: redis://localhost:6379/0`
+  - 验证：读取三处当前值，如为 `redis://localhost:***@localhost:5432/agentmanager_test`（密码占位符 + PostgreSQL 端口）则修复为 `redis://localhost:6379/0`
+  - 如已为正确值，跳过此任务（确认无需修改即可通过 M4-A.1.2）
+
 - [ ] **M4-A.1.2** 验证 CI Redis 连接正常
-  - 修复后运行：`python -m pytest tests/unit/test_redis_stream_event_bus.py -v --no-cov`
   - 验证：Redis service container 可达
 
 ### M4-A.2 — Docker Compose 文档化验证
@@ -303,8 +303,8 @@ M4-F 配置/文档/指标同步   依赖 M4-C、M4-E 输出
 
 - [ ] **M4-E.6.2** 编写 ObjectStoreAuditSink 单元测试
   - 文件：`tests/unit/test_audit_sinks.py`
-  - mock `ObjectStore`，验证按小时聚合 key 格式正确
-  - 验证 JSONL 追加逻辑
+  - mock `ObjectStore`，验证按小时聚合 key 格式正确且每事件写入独立文件
+  - 验证写入逻辑符合每事件独立文件（非 JSONL 追加）
 
 - [ ] **M4-E.6.3** 编写降级策略测试
   - db sink 抛异常时 log sink 不受影响
