@@ -11,6 +11,8 @@ from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Dict, List, Optional, Set
 
+from agentManager.observability.tracing import create_span
+
 logger = logging.getLogger(__name__)
 
 
@@ -63,6 +65,19 @@ class SchedulerEngine:
         priority: int = 0,
         dependencies: Optional[List[str]] = None,
         max_retry_attempts: int = 3,
+    ) -> None:
+        with create_span(
+            "scheduler.add_task",
+            {"task.id": task_id, "task.priority": priority},
+        ):
+            self._add_task_impl(task_id, priority, dependencies, max_retry_attempts)
+
+    def _add_task_impl(
+        self,
+        task_id: str,
+        priority: int,
+        dependencies: Optional[List[str]],
+        max_retry_attempts: int,
     ) -> None:
         """Add task to scheduler.
 
@@ -142,6 +157,22 @@ class SchedulerEngine:
             return permanent_conflicts
 
     def execute_scheduled_tasks(self) -> None:
+        with create_span(
+            "scheduler.execute_scheduled_tasks",
+            {
+                "queue.depth": len(self.execution_queue),
+                "scheduler.concurrency": self.max_concurrent_tasks,
+                "scheduler.running": len(self.running_tasks),
+            },
+        ) as span:
+            self._execute_scheduled_tasks_impl()
+            if span is not None:
+                try:
+                    span.set_attribute("scheduler.running_after", len(self.running_tasks))
+                except Exception:
+                    pass
+
+    def _execute_scheduled_tasks_impl(self) -> None:
         """Execute ready tasks from queue.
 
         This method processes the execution queue, respecting:
@@ -236,6 +267,10 @@ class SchedulerEngine:
                 heapq.heappush(self.execution_queue, item)
 
     def mark_completed(self, task_id: str) -> None:
+        with create_span("scheduler.mark_completed", {"task.id": task_id}):
+            self._mark_completed_impl(task_id)
+
+    def _mark_completed_impl(self, task_id: str) -> None:
         """Mark task as completed.
 
         Args:
@@ -252,6 +287,10 @@ class SchedulerEngine:
         logger.info(f"Completed task {task_id}")
 
     def mark_failed(self, task_id: str) -> None:
+        with create_span("scheduler.mark_failed", {"task.id": task_id}):
+            self._mark_failed_impl(task_id)
+
+    def _mark_failed_impl(self, task_id: str) -> None:
         """Mark task as failed.
 
         Args:

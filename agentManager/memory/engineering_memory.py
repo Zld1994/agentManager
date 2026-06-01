@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 
 from .memory_backend import MemoryBackend
 from agentManager.config.settings import get_durable_backend_settings
+from agentManager.observability.tracing import create_span
 
 from .vector_backend import SQLiteVectorSearchBackend, VectorSearchBackend, create_vector_backend
 
@@ -93,89 +94,98 @@ class EngineeringMemory(MemoryBackend):
             conn.commit()
 
     async def put(self, namespace: str, key: str, value: Any) -> None:
-        if not namespace or not key:
-            raise ValueError("Namespace and key cannot be empty")
+        with create_span("memory.store", {"memory.type": "engineering"}):
+            if not namespace or not key:
+                raise ValueError("Namespace and key cannot be empty")
 
-        async with self._lock:
-            import time
+            async with self._lock:
+                import time
 
-            current_time = time.time()
-            content_type = value.get("type", "general") if isinstance(value, dict) else "general"
-            tags = value.get("tags", []) if isinstance(value, dict) else []
-            value_json = json.dumps(value)
-            tags_json = json.dumps(tags)
+                current_time = time.time()
+                content_type = value.get("type", "general") if isinstance(value, dict) else "general"
+                tags = value.get("tags", []) if isinstance(value, dict) else []
+                value_json = json.dumps(value)
+                tags_json = json.dumps(tags)
 
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO engineering_memory
-                    (namespace, key, value, content_type, created_at, updated_at, tags, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        namespace,
-                        key,
-                        value_json,
-                        content_type,
-                        current_time,
-                        current_time,
-                        tags_json,
-                        None,
-                    ),
-                )
-                conn.commit()
+                with sqlite3.connect(self.db_path) as conn:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO engineering_memory
+                        (namespace, key, value, content_type, created_at, updated_at, tags, metadata)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            namespace,
+                            key,
+                            value_json,
+                            content_type,
+                            current_time,
+                            current_time,
+                            tags_json,
+                            None,
+                        ),
+                    )
+                    conn.commit()
 
-        await self.vector_backend.upsert(namespace, key, _extract_search_text(value))
+            await self.vector_backend.upsert(namespace, key, _extract_search_text(value))
 
     async def get(self, namespace: str, key: str) -> Optional[Any]:
-        if not namespace or not key:
-            raise ValueError("Namespace and key cannot be empty")
+        with create_span("memory.retrieve", {"memory.type": "engineering"}):
+            if not namespace or not key:
+                raise ValueError("Namespace and key cannot be empty")
 
-        async with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT value FROM engineering_memory
-                    WHERE namespace = ? AND key = ?
-                    """,
-                    (namespace, key),
-                )
-                row = cursor.fetchone()
-        if not row:
-            return None
-        return json.loads(row[0])
+            async with self._lock:
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.execute(
+                        """
+                        SELECT value FROM engineering_memory
+                        WHERE namespace = ? AND key = ?
+                        """,
+                        (namespace, key),
+                    )
+                    row = cursor.fetchone()
+            if not row:
+                return None
+            return json.loads(row[0])
 
     async def search(self, namespace: str, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        if not namespace:
-            raise ValueError("Namespace cannot be empty")
+        with create_span("memory.search", {"memory.type": "engineering"}) as span:
+            if not namespace:
+                raise ValueError("Namespace cannot be empty")
 
-        vector_results = await self.vector_backend.query(namespace, query, limit=limit)
-        if vector_results:
-            return await self._hydrate_vector_results(namespace, vector_results)
+            vector_results = await self.vector_backend.query(namespace, query, limit=limit)
+            if vector_results:
+                results = await self._hydrate_vector_results(namespace, vector_results)
+            else:
+                async with self._lock:
+                    with sqlite3.connect(self.db_path) as conn:
+                        cursor = conn.execute(
+                            """
+                            SELECT key, value
+                            FROM engineering_memory
+                            WHERE namespace = ? AND value LIKE ?
+                            LIMIT ?
+                            """,
+                            (namespace, f"%{query}%", limit),
+                        )
+                        rows = cursor.fetchall()
 
-        # Fallback keyword search against stored payload text if vector backend returns nothing.
-        async with self._lock:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.execute(
-                    """
-                    SELECT key, value
-                    FROM engineering_memory
-                    WHERE namespace = ? AND value LIKE ?
-                    LIMIT ?
-                    """,
-                    (namespace, f"%{query}%", limit),
-                )
-                rows = cursor.fetchall()
+                results = [
+                    {
+                        "key": key,
+                        "value": json.loads(value),
+                        "namespace": namespace,
+                        "similarity": 1.0,
+                    }
+                    for key, value in rows
+                ]
 
-        return [
-            {
-                "key": key,
-                "value": json.loads(value),
-                "namespace": namespace,
-                "similarity": 1.0,
-            }
-            for key, value in rows
-        ]
+            if span is not None:
+                try:
+                    span.set_attribute("result.count", len(results))
+                except Exception:
+                    pass
+            return results
 
     async def _hydrate_vector_results(self, namespace: str, vector_results) -> List[Dict[str, Any]]:
         results: List[Dict[str, Any]] = []

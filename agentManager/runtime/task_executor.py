@@ -12,6 +12,7 @@ from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.runtime.execution_context import ExecutionContext
+from agentManager.observability.tracing import trace_task, create_span
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,13 @@ class TaskExecutor:
         )
 
     async def run_task(self, task: TaskLike) -> ExecutionContext:
+        task_id = task.node_id
+        workflow_id = task.metadata.get("workflow_id", "unknown")
+        task_type = task.metadata.get("task_type", "")
+        with trace_task(task_id, task_type):
+            return await self._run_task_impl(task)
+
+    async def _run_task_impl(self, task: TaskLike) -> ExecutionContext:
         """Execute a single task with full lifecycle management.
 
         Manages the complete task execution flow:

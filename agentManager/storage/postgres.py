@@ -135,6 +135,14 @@ class PostgresStateRepository(StateRepository):
                 timestamp TIMESTAMPTZ NOT NULL
             )
             """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_audit_payload
+            ON audit_record USING GIN (payload)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_audit_action
+            ON audit_record (action)
+            """,
         )
         with self.connection.cursor() as cursor:
             for statement in statements:

@@ -18,6 +18,7 @@ from .repair_strategies import (
     RepairStatus,
     RepairStrategyFactory,
 )
+from agentManager.observability.tracing import create_span
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +99,11 @@ class DefectRepairPipeline:
         logger.info("DefectRepairPipeline initialized")
 
     async def repair(self, task_run: TaskRun) -> Tuple[RepairStatus, Optional[str]]:
+        task_id = task_run.task_id
+        with create_span("defect_repair.pipeline", {"task.id": task_id}):
+            return await self._repair_impl(task_run)
+
+    async def _repair_impl(self, task_run: TaskRun) -> Tuple[RepairStatus, Optional[str]]:
         """Execute the complete repair pipeline.
 
         Args:
@@ -111,10 +117,11 @@ class DefectRepairPipeline:
 
         try:
             # Step 1: Classify error
-            repair_level, severity = self.classifier.classify_error(
-                task_run.error_msg,
-                task_run.code_context or task_run.code,
-            )
+            with create_span("defect_repair.classify", {"task.id": task_id}):
+                repair_level, severity = self.classifier.classify_error(
+                    task_run.error_msg,
+                    task_run.code_context or task_run.code,
+                )
             logger.info(f"Error classified as {repair_level.value} / {severity.name}")
 
             # Step 2: Select repair strategy
@@ -131,20 +138,25 @@ class DefectRepairPipeline:
                 "execution_trace": task_run.execution_trace,
             }
 
-            repair_result = await strategy.repair(
-                task_run.error_msg,
-                task_run.code,
-                context,
-            )
+            with create_span(
+                "defect_repair.execute",
+                {"defect.type": context["error_type"], "repair.strategy": strategy.name},
+            ):
+                repair_result = await strategy.repair(
+                    task_run.error_msg,
+                    task_run.code,
+                    context,
+                )
             logger.info(f"Repair executed with status: {repair_result.status.value}")
 
             # Step 4: Verify repair result
             if repair_result.status == RepairStatus.SUCCESS:
-                verified = await self._verify_repair(
-                    task_id,
-                    repair_result.repaired_code,
-                    task_run,
-                )
+                with create_span("defect_repair.verify", {"task.id": task_id}):
+                    verified = await self._verify_repair(
+                        task_id,
+                        repair_result.repaired_code,
+                        task_run,
+                    )
                 if not verified:
                     logger.warning(f"Repair verification failed for task {task_id}")
                     repair_result.status = RepairStatus.FAILED

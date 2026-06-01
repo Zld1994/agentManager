@@ -18,6 +18,7 @@ from agentManager.engine.dag import DAGEngine, DAGNode, TaskStatus
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.engine.event_bus import EventBus, EventType, Event
 from agentManager.engine.scheduler import SchedulerEngine
+from agentManager.observability.tracing import setup_tracing
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,6 +37,18 @@ app = FastAPI(
     description="AI Agent Orchestration Control Plane",
     version="0.1.0",
 )
+
+try:
+    setup_tracing()
+except Exception:
+    logger.debug("setup_tracing() failed; tracing disabled")
+
+try:
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+
+    FastAPIInstrumentor.instrument_app(app)
+except Exception:
+    pass
 
 # Initialize core engines
 dag_engine = DAGEngine()

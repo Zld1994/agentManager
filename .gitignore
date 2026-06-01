@@ -60,6 +60,13 @@ test_tmp/
 TASK_COMPLETION_SUMMARY.txt
 =0.17.0
 
+# CodeGraph daemon
+.codegraph/
+
+# Temporary markdown
+TODO.tmp.md
+taskList.tmp.md
+
 # OS
 .DS_Store
 Thumbs.db
