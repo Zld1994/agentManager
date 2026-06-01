@@ -12,6 +12,8 @@ import re
 import tarfile
 from pathlib import Path
 
+from agentManager.observability.tracing import create_span
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,16 +74,18 @@ class ObjectStoreCheckpointManager(CheckpointManager):
         self.prefix = prefix.strip("/")
 
     async def save_checkpoint(self, task_id: str, context: Any) -> None:
-        key = self._key_for_task(task_id)
-        data = json.dumps(context).encode("utf-8")
-        self.object_store.put_bytes(key, data, content_type="application/json")
+        with create_span("checkpoint.save", {"task.id": task_id}):
+            key = self._key_for_task(task_id)
+            data = json.dumps(context).encode("utf-8")
+            self.object_store.put_bytes(key, data, content_type="application/json")
 
     async def load_checkpoint(self, task_id: str) -> Optional[Any]:
-        key = self._key_for_task(task_id)
-        data = self.object_store.get_bytes(key)
-        if data is None:
-            return None
-        return json.loads(data.decode("utf-8"))
+        with create_span("checkpoint.load", {"task.id": task_id}):
+            key = self._key_for_task(task_id)
+            data = self.object_store.get_bytes(key)
+            if data is None:
+                return None
+            return json.loads(data.decode("utf-8"))
 
     async def delete_checkpoint(self, task_id: str) -> None:
         self.object_store.delete(self._key_for_task(task_id))

@@ -18,6 +18,7 @@ from agentManager.observability.tracing import trace_operation
 from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy, FailureType
 from agentManager.runtime.execution_context import ExecutionContext, ExecutionStatus
 from agentManager.runtime.task_executor import TaskExecutor
+from agentManager.observability.tracing import trace_workflow, create_span
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,10 @@ class WorkflowCoordinator:
         self.memory_backend = memory_backend
 
     async def run_workflow(self, workflow_id: str) -> WorkflowRunResult:
+        with trace_workflow(workflow_id):
+            return await self._run_workflow_impl(workflow_id)
+
+    async def _run_workflow_impl(self, workflow_id: str) -> WorkflowRunResult:
         """Run workflow tasks until completion/failure or loop guard timeout."""
         with trace_operation(
             "workflow.run",
@@ -173,6 +178,13 @@ class WorkflowCoordinator:
                 scheduled_task.retry_attempts = 0
 
     async def _execute_scheduled_task(self, task_id: str) -> None:
+        with create_span(
+            "workflow.execute_scheduled_task",
+            {"task.id": task_id, "workflow.task_count": len(self.scheduler.tasks)},
+        ):
+            await self._execute_scheduled_task_impl(task_id)
+
+    async def _execute_scheduled_task_impl(self, task_id: str) -> None:
         """Execute one scheduler-dispatched task and sync engine statuses."""
         node = self.dag_engine.get_node(task_id)
         if node is None:

@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 import logging
 
+from agentManager.observability.tracing import create_span
+
 logger = logging.getLogger(__name__)
 
 
@@ -113,6 +115,21 @@ class StateMachine:
         new_state: TaskState,
         reason: str = "",
     ) -> None:
+        with create_span(
+            "state_manager.transition",
+            {
+                "task.id": task_id,
+                "state.to": new_state.value,
+            },
+        ):
+            self._transition_impl(task_id, new_state, reason)
+
+    def _transition_impl(
+        self,
+        task_id: str,
+        new_state: TaskState,
+        reason: str,
+    ) -> None:
         """Transition task to new state.
 
         Args:
@@ -177,6 +194,10 @@ class StateMachine:
         logger.info(log_msg)
 
     def get_state(self, task_id: str) -> Optional[TaskState]:
+        with create_span("state_manager.get_state", {"task.id": task_id}):
+            return self._get_state_impl(task_id)
+
+    def _get_state_impl(self, task_id: str) -> Optional[TaskState]:
         """Get current state of task.
 
         Args:

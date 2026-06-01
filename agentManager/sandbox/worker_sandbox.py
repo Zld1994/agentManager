@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Tuple, Optional, Dict
 from dataclasses import dataclass
 
+from agentManager.observability.tracing import create_span
+
 try:
     import docker
     import docker.errors
@@ -161,6 +163,16 @@ class WorkerSandbox:
         return volumes
 
     def create_container(self) -> None:
+        with create_span(
+            "sandbox.create",
+            {
+                "sandbox.worker_id": self.config.worker_id,
+                "sandbox.image": self.config.image,
+            },
+        ):
+            self._create_container_impl()
+
+    def _create_container_impl(self) -> None:
         """
         Create a Docker container with security hardening.
 
@@ -240,6 +252,21 @@ class WorkerSandbox:
         self,
         command: str,
         timeout: int = 300,
+    ) -> SandboxExecutionResult:
+        truncated_cmd = command[:100] if len(command) > 100 else command
+        with create_span(
+            "sandbox.execute",
+            {
+                "sandbox.worker_id": self.config.worker_id,
+                "sandbox.command": truncated_cmd,
+            },
+        ):
+            return self._exec_for_task_impl(command, timeout)
+
+    def _exec_for_task_impl(
+        self,
+        command: str,
+        timeout: int,
     ) -> SandboxExecutionResult:
         """
         Execute command and return observable timeout cleanup details.
