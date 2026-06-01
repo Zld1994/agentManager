@@ -63,12 +63,12 @@ jobs:
         run: |
           pytest tests/unit/ -v --cov=agentManager --cov-report=term-missing --cov-report=xml
         env:
-          REDIS_URL: redis://localhost:6379
+          REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentmanager_test
 
       - name: Check coverage threshold
         id: coverage-threshold
-        if: matrix.python-version == '3.10'
+        if: matrix.python-version == '3.10' || matrix.python-version == '3.12'
         run: |
           coverage report --fail-under=80
 
@@ -77,18 +77,32 @@ jobs:
         run: |
           pytest tests/e2e/ -v --no-cov
         env:
-          REDIS_URL: redis://localhost:6379
+          REDIS_URL: redis://localhost:6379/0
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentmanager_test
 
-      - name: Run mypy type checking
-        id: mypy
+      - name: Run mypy type checking (core modules)
+        id: mypy-core
+        run: |
+          mypy agentManager/runtime/ agentManager/storage/ agentManager/config/ --ignore-missing-imports
+
+      - name: Run mypy type checking (advisory)
+        id: mypy-advisory
+        if: always()
         run: |
           mypy agentManager/ --ignore-missing-imports || true
 
       - name: Run flake8 code style check
         id: flake8
         run: |
-          flake8 agentManager/ --max-line-length=100 --count --statistics
+          flake8 agentManager/ tests/ --max-line-length=100 --count --statistics
+
+      - name: Run durable backend integration tests
+        id: durable-tests
+        run: |
+          pytest tests/unit/test_storage_backends.py tests/unit/test_state_manager.py tests/unit/test_checkpoint.py tests/unit/test_redis_stream_event_bus.py -v --no-cov
+        env:
+          REDIS_URL: redis://localhost:6379/0
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentmanager_test
 
       - name: Generate verification summary
         if: always()
@@ -97,10 +111,12 @@ jobs:
             --output ".test-artifacts/verification-summary-python-${{ matrix.python-version }}.md" \
             --python-version "${{ matrix.python-version }}" \
             --command-result "${{ steps.unit-tests.outcome || 'unknown' }}::pytest tests/unit/ -v --cov=agentManager --cov-report=term-missing --cov-report=xml::unit tests with coverage" \
-            --command-result "${{ steps.coverage-threshold.outcome || 'skipped' }}::coverage report --fail-under=80::coverage threshold on Python 3.10 only" \
+            --command-result "${{ steps.coverage-threshold.outcome || 'skipped' }}::coverage report --fail-under=80::coverage threshold on Python 3.10 and 3.12" \
             --command-result "${{ steps.e2e-tests.outcome || 'unknown' }}::pytest tests/e2e/ -v --no-cov::end-to-end tests" \
-            --command-result "${{ steps.mypy.outcome || 'unknown' }}::mypy agentManager/ --ignore-missing-imports || true::type checking is advisory" \
-            --command-result "${{ steps.flake8.outcome || 'unknown' }}::flake8 agentManager/ --max-line-length=100 --count --statistics::code style check"
+            --command-result "${{ steps.mypy-core.outcome || 'unknown' }}::mypy agentManager/runtime/ agentManager/storage/ agentManager/config/ --ignore-missing-imports::type checking (core modules - blocking)" \
+            --command-result "${{ steps.mypy-advisory.outcome || 'unknown' }}::mypy agentManager/ --ignore-missing-imports || true::type checking (advisory)" \
+            --command-result "${{ steps.flake8.outcome || 'unknown' }}::flake8 agentManager/ tests/ --max-line-length=100 --count --statistics::code style check" \
+            --command-result "${{ steps.durable-tests.outcome || 'unknown' }}::pytest tests/unit/test_storage_backends.py tests/unit/test_state_manager.py tests/unit/test_checkpoint.py tests/unit/test_redis_stream_event_bus.py -v --no-cov::durable backend integration tests"
 
       - name: Upload verification summary
         if: always()
