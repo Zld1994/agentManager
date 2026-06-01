@@ -60,7 +60,7 @@ services:
       - agentmanager
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.102.1
+    image: docker.m.daocloud.io/otel/opentelemetry-collector-contrib:0.102.1
     container_name: agentmanager-otel-collector
     command: ["--config=/etc/otel-collector-config.yml"]
     volumes:
@@ -74,7 +74,7 @@ services:
       - agentmanager
 
   jaeger:
-    image: jaegertracing/all-in-one:1.57
+    image: docker.m.daocloud.io/jaegertracing/all-in-one:1.57
     container_name: agentmanager-jaeger
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
@@ -84,7 +84,7 @@ services:
       - agentmanager
 
   postgres:
-    image: postgres:15
+    image: docker.m.daocloud.io/library/postgres:15
     container_name: agentmanager-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-agentmanager}
@@ -104,7 +104,7 @@ services:
       - agentmanager
 
   redis:
-    image: redis:7
+    image: docker.m.daocloud.io/library/redis:7
     container_name: agentmanager-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
@@ -121,7 +121,7 @@ services:
       - agentmanager
 
   qdrant:
-    image: qdrant/qdrant:latest
+    image: docker.m.daocloud.io/qdrant/qdrant:latest
     container_name: agentmanager-qdrant
     ports:
       - "6333:6333"
@@ -142,7 +142,7 @@ services:
       - agentmanager
 
   minio:
-    image: minio/minio:latest
+    image: docker.m.daocloud.io/minio/minio:latest
     container_name: agentmanager-minio
     command: ["server", "/data", "--console-address", ":9001"]
     environment:

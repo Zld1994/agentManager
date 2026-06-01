@@ -9,6 +9,8 @@ Provides:
 """
 
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Tuple, Optional, Dict
 from dataclasses import dataclass
@@ -47,7 +49,7 @@ class SandboxConfig:
 
     worker_id: str
     task_id: Optional[str] = None
-    image: str = "python:3.10-slim"
+    image: str = "python:3.11-slim"
     cpu_limit: float = 1.0  # CPU cores
     memory_limit: str = "512m"
     timeout: int = 300  # seconds
@@ -55,7 +57,7 @@ class SandboxConfig:
     environment: Optional[Dict[str, str]] = None
     workspace_root: Path | str = Path("test_tmp") / "sandbox"
     container_workspace: str = "/workspace"
-    allowed_images: Tuple[str, ...] = ("python:3.10-slim",)
+    allowed_images: Tuple[str, ...] = ("python:3.11-slim",)
     denied_mounts: Tuple[str, ...] = ("/var/run/docker.sock",)
     network_mode: str = "none"
     pids_limit: int = 256
@@ -87,6 +89,11 @@ class SandboxConfig:
             or value in {".", ".."}
         ):
             raise ValueError(f"Invalid task workspace {field_name}: {value!r}")
+
+    def __post_init__(self):
+        """Create workspace directories on initialization."""
+        Path(self.workspace_root).mkdir(parents=True, exist_ok=True)
+        self.task_workspace_path.mkdir(parents=True, exist_ok=True)
 
     def validate_policy(self) -> None:
         """Validate sandbox image and mount policy before container creation."""
@@ -281,18 +288,51 @@ class WorkerSandbox:
         if not self.container:
             raise RuntimeError("Container not created. Call create_container() first.")
 
+        result_holder = {}
+        exception_holder = []
+        exec_lock = threading.Lock()
+
+        def _exec_task():
+            """Run exec_run in a thread, storing result."""
+            try:
+                with exec_lock:
+                    exit_code, output = self.container.exec_run(
+                        command,
+                        stdout=True,
+                        stderr=True,
+                        demux=True,
+                        workdir=self.config.container_workspace,
+                    )
+                    result_holder["exit_code"] = exit_code
+                    result_holder["output"] = output
+            except Exception as e:
+                exception_holder.append(e)
+
         try:
-            exit_code, output = self.container.exec_run(
-                command,
-                stdout=True,
-                stderr=True,
-                demux=True,
-                timeout=timeout,
-                workdir=self.config.container_workspace,
-            )
+            # Execute command with timeout using ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_exec_task)
+                try:
+                    future.result(timeout=timeout)
+                except FuturesTimeoutError:
+                    # Command timed out - kill container and cleanup
+                    cleanup_status, cleanup_error = self._cleanup_after_timeout()
+                    stderr = f"Command timed out after {timeout} seconds"
+                    return SandboxExecutionResult(
+                        124,
+                        "",
+                        stderr,
+                        timed_out=True,
+                        cleanup_status=cleanup_status,
+                        cleanup_error=cleanup_error,
+                    )
+
+            # Check for exceptions from the exec task
+            if exception_holder:
+                raise exception_holder[0]
 
             # Demux returns (stdout_bytes, stderr_bytes) tuple
-            stdout_bytes, stderr_bytes = output or (b"", b"")
+            stdout_bytes, stderr_bytes = result_holder.get("output") or (b"", b"")
 
             # Decode with error handling
             stdout = (
@@ -307,22 +347,14 @@ class WorkerSandbox:
             )
 
             logger.debug(
-                f"Command executed: exit_code={exit_code}, "
+                f"Command executed: exit_code={result_holder.get('exit_code')}, "
                 f"stdout_len={len(stdout)}, stderr_len={len(stderr)}"
             )
 
-            return SandboxExecutionResult(exit_code, stdout, stderr)
-
-        except TimeoutError as e:
-            cleanup_status, cleanup_error = self._cleanup_after_timeout()
-            stderr = f"Command timed out after {timeout} seconds: {e}"
             return SandboxExecutionResult(
-                124,
-                "",
+                result_holder.get("exit_code", -1),
+                stdout,
                 stderr,
-                timed_out=True,
-                cleanup_status=cleanup_status,
-                cleanup_error=cleanup_error,
             )
 
         except docker.errors.APIError as e:
