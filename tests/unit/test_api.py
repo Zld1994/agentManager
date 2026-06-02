@@ -623,7 +623,9 @@ class TestRequestBodySizeLimit:
 class TestInternalErrorNoLeak:
 
     def test_create_task_internal_error_generic_message(self, client):
-        with patch.object(dag_engine, "add_node", side_effect=RuntimeError("database connection lost")):
+        with patch.object(
+            dag_engine, "add_node", side_effect=RuntimeError("database connection lost")
+        ):
             response = client.post(
                 "/tasks",
                 json={
@@ -681,24 +683,33 @@ class TestRedisURLMasking:
 
     def test_mask_url_with_credentials(self):
         from agentManager.engine.event_bus.redis_stream import _mask_url
+
         assert _mask_url("redis://user:password@localhost:6379/0") == "redis://***@localhost:6379/0"
 
     def test_mask_url_without_credentials(self):
         from agentManager.engine.event_bus.redis_stream import _mask_url
+
         assert _mask_url("redis://localhost:6379/0") == "redis://localhost:6379/0"
 
     def test_mask_url_without_scheme(self):
         from agentManager.engine.event_bus.redis_stream import _mask_url
+
         assert _mask_url("localhost:6379") == "localhost:6379"
 
     def test_mask_url_with_at_in_password(self):
         from agentManager.engine.event_bus.redis_stream import _mask_url
-        assert _mask_url("redis://admin:p@ss@redis.example.com:6379") == "redis://***@redis.example.com:6379"
+
+        assert (
+            _mask_url("redis://admin:p@ss@redis.example.com:6379")
+            == "redis://***@redis.example.com:6379"
+        )
 
     def test_mask_url_rediss_scheme(self):
         from agentManager.engine.event_bus.redis_stream import _mask_url
+
         assert _mask_url("rediss://user:secret@host:6379") == "rediss://***@host:6379"
 
     def test_mask_url_empty_string(self):
         from agentManager.engine.event_bus.redis_stream import _mask_url
+
         assert _mask_url("") == ""

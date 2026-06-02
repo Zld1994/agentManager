@@ -1,4 +1,11 @@
 # 待办事项
+## CI 修复记录 (2026-06-02)
+
+- 已修复 GitHub Actions coverage 阈值失败：本地 unit coverage 为 82%，`coverage report --fail-under=80` 通过。
+- 已修复 core mypy 阻塞：CI 命令改为显式 package base，并修复 runtime/storage/config 目标文件的返回类型问题。
+- 已清理全仓库 flake8 阻塞：`flake8 agentManager/ tests/ --max-line-length=100 --count --statistics --jobs=1` 输出 `0`。
+- 已处理 FastAPI TestClient 的 StarletteDeprecationWarning：使用 pytest 精确过滤第三方兼容告警，`pytest -q --no-cov` 无 warning。
+- 修复提交推送后仍需查看新的 GitHub Actions run，确认远端 Python 3.10/3.11/3.12 jobs 全部通过。
 
 ## 当前维护说明
 

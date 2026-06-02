@@ -22,6 +22,7 @@ def utc_now() -> datetime:
 
 class EventType(str, Enum):
     """Task event types."""
+
     TASK_CREATED = "task_created"
     TASK_STARTED = "task_started"
     TASK_COMPLETED = "task_completed"
@@ -35,6 +36,7 @@ class EventType(str, Enum):
 @dataclass
 class Event:
     """Represents a task event."""
+
     event_type: EventType
     workflow_id: str
     payload: Dict = field(default_factory=dict)
@@ -87,7 +89,7 @@ class EventBus:
             event.payload = {**event.payload, "correlation_id": correlation_id}
         self.events.append(event)
         if self.max_events > 0 and len(self.events) > self.max_events:
-            del self.events[:len(self.events) - self.max_events]
+            del self.events[: len(self.events) - self.max_events]
         logger.info(f"Published event: {event.event_type.value} for workflow {event.workflow_id}")
 
         # Trigger both exact and wildcard subscriptions

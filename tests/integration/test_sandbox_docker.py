@@ -19,6 +19,7 @@ def docker_available():
         return False
     try:
         import docker
+
         client = docker.from_env()
         client.ping()
         return True
@@ -121,7 +122,7 @@ class TestWorkerSandboxRealDocker:
 
         with WorkerSandbox(config) as sandbox:
             exit_code, stdout, stderr = sandbox.exec_in(
-                "python3 -c \"import socket; s=socket.socket(); "
+                'python3 -c "import socket; s=socket.socket(); '
                 "s.settimeout(2); s.connect(('8.8.8.8',53))\" 2>&1 || true"
             )
 
@@ -219,9 +220,7 @@ class TestWorkerSandboxRealDocker:
             worker_id="test-worker-009",
             workspace_root=temp_workspace,
             timeout=60,
-            volumes={
-                "/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "ro"}
-            },
+            volumes={"/var/run/docker.sock": {"bind": "/var/run/docker.sock", "mode": "ro"}},
         )
 
         with pytest.raises(ValueError, match="denied mount"):

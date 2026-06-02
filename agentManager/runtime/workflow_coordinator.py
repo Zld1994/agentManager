@@ -92,9 +92,7 @@ class WorkflowCoordinator:
 
                     idle_iterations += 1
                     if idle_iterations > 2:
-                        logger.warning(
-                            "Workflow %s stopped after idle iterations", workflow_id
-                        )
+                        logger.warning("Workflow %s stopped after idle iterations", workflow_id)
                         break
                     continue
 
@@ -117,13 +115,9 @@ class WorkflowCoordinator:
                 if task.status == "completed"
             ]
             failed_tasks = [
-                task_id
-                for task_id, task in self.scheduler.tasks.items()
-                if task.status == "failed"
+                task_id for task_id, task in self.scheduler.tasks.items() if task.status == "failed"
             ]
-            success = len(failed_tasks) == 0 and len(completed_tasks) == len(
-                self.scheduler.tasks
-            )
+            success = len(failed_tasks) == 0 and len(completed_tasks) == len(self.scheduler.tasks)
 
             result = WorkflowRunResult(
                 workflow_id=workflow_id,
@@ -165,9 +159,7 @@ class WorkflowCoordinator:
                 self.state_machine.initialize(task_id, TaskState.PENDING)
                 current = TaskState.PENDING
             if current == TaskState.PENDING:
-                self.state_machine.transition(
-                    task_id, TaskState.READY, "Dependencies satisfied"
-                )
+                self.state_machine.transition(task_id, TaskState.READY, "Dependencies satisfied")
 
     def _clear_backoff_for_ready_tasks(self, ready_tasks: List[str]) -> None:
         """Clear scheduler backoff when DAG says a task is ready to run."""
@@ -212,13 +204,10 @@ class WorkflowCoordinator:
                 if current_state == TaskState.READY:
                     self._mark_scheduler_pending(task_id)
                     self.dag_engine.update_node_status(task_id, status_enum.PENDING)
-                    await self._write_recovery_result_to_memory(
-                        task_id, node, "recovered_retry"
-                    )
+                    await self._write_recovery_result_to_memory(task_id, node, "recovered_retry")
                     return
                 logger.warning(
-                    "Recovery for task %s did not produce a runnable or "
-                    "completed state",
+                    "Recovery for task %s did not produce a runnable or " "completed state",
                     task_id,
                 )
 
@@ -238,7 +227,7 @@ class WorkflowCoordinator:
 
         failure_type, strategy = self.recovery_engine.error_classifier.classify(error)
         repair_pipeline = getattr(self.recovery_engine, "defect_repair_pipeline", None)
-        
+
         # Only use DEFECT_REPAIR strategy when:
         # 1. Failure type is RUNTIME (repairable)
         # 2. Defect repair pipeline exists
@@ -260,7 +249,8 @@ class WorkflowCoordinator:
         )
 
         try:
-            return await self.recovery_engine.execute_recovery(ctx)
+            result = await self.recovery_engine.execute_recovery(ctx)
+            return bool(result)
         except Exception as exc:
             logger.error("Recovery failed for task %s: %s", task_id, exc)
             return False
@@ -281,10 +271,7 @@ class WorkflowCoordinator:
         """Return True when every scheduled task is completed or failed."""
         if not self.scheduler.tasks:
             return True
-        return all(
-            task.status in {"completed", "failed"}
-            for task in self.scheduler.tasks.values()
-        )
+        return all(task.status in {"completed", "failed"} for task in self.scheduler.tasks.values())
 
     def _sync_scheduler_failures(self) -> None:
         """Propagate scheduler-side failures to DAG and state machine."""
@@ -362,9 +349,7 @@ class WorkflowCoordinator:
                 value=record,
             )
         except Exception as exc:
-            logger.warning(
-                "Memory write-back failed for task %s: %s", task_id, exc
-            )
+            logger.warning("Memory write-back failed for task %s: %s", task_id, exc)
 
     async def _write_task_result_to_memory(
         self,
@@ -380,9 +365,7 @@ class WorkflowCoordinator:
             extra["retry_count"] = context.retry_count
             if context.result:
                 extra["result_keys"] = list(context.result.keys())
-        await self._write_record_to_memory(
-            task_id, node, "task_execution", outcome, "task", extra
-        )
+        await self._write_record_to_memory(task_id, node, "task_execution", outcome, "task", extra)
 
     async def _write_recovery_result_to_memory(
         self,
@@ -391,9 +374,7 @@ class WorkflowCoordinator:
         outcome: str,
     ) -> None:
         """Best-effort write of recovery result to memory backend."""
-        await self._write_record_to_memory(
-            task_id, node, "task_recovery", outcome, "recovery"
-        )
+        await self._write_record_to_memory(task_id, node, "task_recovery", outcome, "recovery")
 
     async def resume_workflow(self, workflow_id: str) -> WorkflowRunResult:
         """Resume a workflow from checkpoint and persisted state.
@@ -413,9 +394,7 @@ class WorkflowCoordinator:
                 continue
 
             try:
-                checkpoint = await self.task_executor.checkpoint_manager.load_checkpoint(
-                    task_id
-                )
+                checkpoint = await self.task_executor.checkpoint_manager.load_checkpoint(task_id)
             except Exception:
                 continue
 
@@ -429,9 +408,7 @@ class WorkflowCoordinator:
                 node = self.dag_engine.get_node(task_id)
                 if node is not None:
                     status_enum = node.status.__class__
-                    self.dag_engine.update_node_status(
-                        task_id, status_enum.COMPLETED
-                    )
+                    self.dag_engine.update_node_status(task_id, status_enum.COMPLETED)
                 self.scheduler.mark_completed(task_id)
                 current = self.state_machine.get_state(task_id)
                 if current != TaskState.COMPLETED:
@@ -439,6 +416,4 @@ class WorkflowCoordinator:
                         task_id, TaskState.COMPLETED, "Restored from checkpoint"
                     )
                 if node is not None:
-                    await self._write_task_result_to_memory(
-                        task_id, node, "restored"
-                    )
+                    await self._write_task_result_to_memory(task_id, node, "restored")

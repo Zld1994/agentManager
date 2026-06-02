@@ -149,10 +149,7 @@ class WorkerGuard:
         self._output_similarity_threshold = output_similarity_threshold
 
     def track_action(
-        self,
-        action_type: str,
-        action_params: Dict[str, Any],
-        timestamp: datetime
+        self, action_type: str, action_params: Dict[str, Any], timestamp: datetime
     ) -> None:
         """
         Track an action.
@@ -162,11 +159,13 @@ class WorkerGuard:
             action_params: Parameters of the action
             timestamp: When the action occurred
         """
-        self._actions.append({
-            "action_type": action_type,
-            "action_params": action_params,
-            "timestamp": timestamp,
-        })
+        self._actions.append(
+            {
+                "action_type": action_type,
+                "action_params": action_params,
+                "timestamp": timestamp,
+            }
+        )
 
     def check_repeated_actions(self) -> bool:
         """

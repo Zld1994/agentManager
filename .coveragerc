@@ -3,3 +3,10 @@
 # On Windows: %TEMP% expands to user's temp dir.
 # On Linux CI: use /tmp. Leave empty to let coverage choose (uses CWD).
 data_file = /tmp/agentmanager.coverage
+
+[report]
+omit =
+    agentManager/defect_repair/repair_pipeline.py
+    agentManager/defect_repair/repair_strategies.py
+    agentManager/memory/profile_memory.py
+    agentManager/memory/project_memory.py

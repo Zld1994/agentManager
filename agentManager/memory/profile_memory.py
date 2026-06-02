@@ -124,9 +124,7 @@ class ProfileMemory(MemoryBackend):
             current_time = time.time()
             for namespace in list(self._storage.keys()):
                 expired_keys = [
-                    key
-                    for key, expiry in self._expiry[namespace].items()
-                    if current_time > expiry
+                    key for key, expiry in self._expiry[namespace].items() if current_time > expiry
                 ]
                 for key in expired_keys:
                     del self._storage[namespace][key]

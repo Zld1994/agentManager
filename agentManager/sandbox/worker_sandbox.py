@@ -21,6 +21,7 @@ try:
     import docker
     import docker.errors
 except ImportError:
+
     class _DockerAPIError(Exception):
         """Fallback Docker API error when docker SDK is not installed."""
 
@@ -116,9 +117,7 @@ class SandboxConfig:
             if "rw" in mode and not (
                 resolved_host == workspace or resolved_host.is_relative_to(workspace)
             ):
-                raise ValueError(
-                    f"Writable mount {host_path!r} is outside task workspace"
-                )
+                raise ValueError(f"Writable mount {host_path!r} is outside task workspace")
 
 
 @dataclass
@@ -237,11 +236,7 @@ class WorkerSandbox:
             logger.error(f"Failed to start container: {e}")
             raise
 
-    def exec_in(
-        self,
-        command: str,
-        timeout: int = 300
-    ) -> Tuple[int, str, str]:
+    def exec_in(self, command: str, timeout: int = 300) -> Tuple[int, str, str]:
         """
         Execute command in container with stdout/stderr separation.
 
@@ -335,16 +330,8 @@ class WorkerSandbox:
             stdout_bytes, stderr_bytes = result_holder.get("output") or (b"", b"")
 
             # Decode with error handling
-            stdout = (
-                stdout_bytes.decode("utf-8", errors="replace")
-                if stdout_bytes
-                else ""
-            )
-            stderr = (
-                stderr_bytes.decode("utf-8", errors="replace")
-                if stderr_bytes
-                else ""
-            )
+            stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+            stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
 
             logger.debug(
                 f"Command executed: exit_code={result_holder.get('exit_code')}, "
@@ -380,8 +367,7 @@ class WorkerSandbox:
 
         if not errors:
             logger.warning(
-                f"Container killed and removed after timeout: "
-                f"{self.container.id[:12]}"
+                f"Container killed and removed after timeout: " f"{self.container.id[:12]}"
             )
             return "removed", ""
 

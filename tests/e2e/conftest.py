@@ -11,9 +11,7 @@ import pytest
 @pytest.fixture
 def tmp_path(request):
     """Use a repo-local temp path to avoid locked Windows user temp folders."""
-    base_path = (
-        Path(__file__).resolve().parents[2] / ".test-artifacts" / "pytest-e2e"
-    )
+    base_path = Path(__file__).resolve().parents[2] / ".test-artifacts" / "pytest-e2e"
     safe_name = "".join(
         character if character.isalnum() or character in ("-", "_") else "_"
         for character in request.node.name

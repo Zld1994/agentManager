@@ -39,7 +39,6 @@ from agentManager.observability.tracing import (
     _NoOpSpan,
 )
 
-
 # ── Logging tests ────────────────────────────────────────────────────────────
 
 
@@ -68,8 +67,13 @@ class TestCorrelationContext:
 class TestJSONFormatter:
     def _make_record(self, msg: str = "hello", **kwargs):
         record = logging.LogRecord(
-            name="test", level=logging.INFO, pathname="test.py",
-            lineno=1, msg=msg, args=(), exc_info=None,
+            name="test",
+            level=logging.INFO,
+            pathname="test.py",
+            lineno=1,
+            msg=msg,
+            args=(),
+            exc_info=None,
         )
         record.request_id = kwargs.get("request_id", "")
         record.workflow_id = kwargs.get("workflow_id", "")
@@ -105,6 +109,7 @@ class TestJSONFormatter:
             raise ValueError("boom")
         except ValueError:
             import sys
+
             record.exc_info = sys.exc_info()
         data = json.loads(fmt.format(record))
         assert "exception" in data
@@ -235,10 +240,12 @@ class TestAuditHelpers:
 
     def test_record_audit_event_direct(self, caplog):
         with caplog.at_level(logging.INFO, logger="agentManager.audit"):
-            record_audit_event(AuditEvent(
-                event_type=AuditEventType.CUSTOM,
-                detail={"custom_key": "custom_value"},
-            ))
+            record_audit_event(
+                AuditEvent(
+                    event_type=AuditEventType.CUSTOM,
+                    detail={"custom_key": "custom_value"},
+                )
+            )
         assert len(caplog.records) == 1
 
 
@@ -249,6 +256,7 @@ class TestModuleImports:
     def test_init_exports(self):
         """Verify all __all__ exports are importable."""
         import agentManager.observability as obs
+
         for name in obs.__all__:
             assert hasattr(obs, name), f"Missing export: {name}"
 
@@ -318,28 +326,34 @@ class TestAuditMultiSink:
     def test_db_sink_without_repository_logs_failure(self, caplog):
         configure_audit_sinks("log,db")
         with caplog.at_level(logging.ERROR, logger="agentManager.audit"):
-            record_audit_event(AuditEvent(
-                event_type=AuditEventType.TASK_EXECUTED,
-                resource="task-1",
-            ))
+            record_audit_event(
+                AuditEvent(
+                    event_type=AuditEventType.TASK_EXECUTED,
+                    resource="task-1",
+                )
+            )
         assert any("database" in r.getMessage().lower() for r in caplog.records)
 
     def test_object_storage_sink_without_store_logs_failure(self, caplog):
         configure_audit_sinks("log,object_storage")
         with caplog.at_level(logging.ERROR, logger="agentManager.audit"):
-            record_audit_event(AuditEvent(
-                event_type=AuditEventType.TASK_EXECUTED,
-                resource="task-1",
-            ))
+            record_audit_event(
+                AuditEvent(
+                    event_type=AuditEventType.TASK_EXECUTED,
+                    resource="task-1",
+                )
+            )
         assert any("object storage" in r.getMessage().lower() for r in caplog.records)
 
     def test_register_custom_handler(self):
         received = []
         register_audit_handler(lambda e: received.append(e))
-        record_audit_event(AuditEvent(
-            event_type=AuditEventType.CUSTOM,
-            resource="test",
-        ))
+        record_audit_event(
+            AuditEvent(
+                event_type=AuditEventType.CUSTOM,
+                resource="test",
+            )
+        )
         assert len(received) == 1
         assert received[0].resource == "test"
 
@@ -351,10 +365,12 @@ class TestAuditMultiSink:
 
         register_audit_handler(handler)
         unregister_audit_handler(handler)
-        record_audit_event(AuditEvent(
-            event_type=AuditEventType.CUSTOM,
-            resource="test",
-        ))
+        record_audit_event(
+            AuditEvent(
+                event_type=AuditEventType.CUSTOM,
+                resource="test",
+            )
+        )
         assert len(received) == 0
 
     def test_unregister_missing_handler_no_error(self):
@@ -364,10 +380,12 @@ class TestAuditMultiSink:
         received = []
         register_audit_handler(lambda e: 1 / 0)
         register_audit_handler(lambda e: received.append(e))
-        record_audit_event(AuditEvent(
-            event_type=AuditEventType.CUSTOM,
-            resource="test",
-        ))
+        record_audit_event(
+            AuditEvent(
+                event_type=AuditEventType.CUSTOM,
+                resource="test",
+            )
+        )
         assert len(received) == 1
 
 
@@ -376,44 +394,59 @@ class TestAuditMultiSink:
 
 class TestTracingConfiguration:
     def test_invalid_protocol_falls_back_with_warning(self, caplog):
-        with patch.dict("os.environ", {
-            "OTEL_TRACING_ENABLED": "true",
-            "OTEL_EXPORTER_OTLP_PROTOCOL": "invalid_proto",
-        }, clear=False):
+        with patch.dict(
+            "os.environ",
+            {
+                "OTEL_TRACING_ENABLED": "true",
+                "OTEL_EXPORTER_OTLP_PROTOCOL": "invalid_proto",
+            },
+            clear=False,
+        ):
             with caplog.at_level(logging.WARNING):
                 result = setup_tracing(enabled=True)
             assert result is False
             assert any(
-                "invalid" in r.getMessage().lower()
-                and "protocol" in r.getMessage().lower()
+                "invalid" in r.getMessage().lower() and "protocol" in r.getMessage().lower()
                 for r in caplog.records
             )
 
     def test_invalid_sample_rate_falls_back(self, caplog):
-        with patch.dict("os.environ", {
-            "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACING_SAMPLE_RATE": "not_a_number",
-        }, clear=False):
+        with patch.dict(
+            "os.environ",
+            {
+                "OTEL_TRACING_ENABLED": "true",
+                "OTEL_TRACING_SAMPLE_RATE": "not_a_number",
+            },
+            clear=False,
+        ):
             with caplog.at_level(logging.WARNING):
                 result = setup_tracing(enabled=True)
             assert result is False
             assert any("sample_rate" in r.getMessage().lower() for r in caplog.records)
 
     def test_out_of_range_sample_rate_clamped(self, caplog):
-        with patch.dict("os.environ", {
-            "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACING_SAMPLE_RATE": "5.0",
-        }, clear=False):
+        with patch.dict(
+            "os.environ",
+            {
+                "OTEL_TRACING_ENABLED": "true",
+                "OTEL_TRACING_SAMPLE_RATE": "5.0",
+            },
+            clear=False,
+        ):
             with caplog.at_level(logging.WARNING):
                 result = setup_tracing(enabled=True)
             assert result is False
             assert any("clamping" in r.getMessage().lower() for r in caplog.records)
 
     def test_negative_sample_rate_clamped(self, caplog):
-        with patch.dict("os.environ", {
-            "OTEL_TRACING_ENABLED": "true",
-            "OTEL_TRACING_SAMPLE_RATE": "-0.5",
-        }, clear=False):
+        with patch.dict(
+            "os.environ",
+            {
+                "OTEL_TRACING_ENABLED": "true",
+                "OTEL_TRACING_SAMPLE_RATE": "-0.5",
+            },
+            clear=False,
+        ):
             with caplog.at_level(logging.WARNING):
                 result = setup_tracing(enabled=True)
             assert result is False

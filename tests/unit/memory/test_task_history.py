@@ -45,7 +45,7 @@ def test_task_record_creation():
         session_id="session_001",
         task_name="Test Task",
         status="running",
-        start_time=now
+        start_time=now,
     )
     assert record.task_id == "task_001"
     assert record.session_id == "session_001"
@@ -62,13 +62,13 @@ def test_task_record_serialization():
         task_name="Test Task",
         status="completed",
         start_time=now,
-        result={"output": "success"}
+        result={"output": "success"},
     )
-    
+
     data = record.to_dict()
     assert data["task_id"] == "task_001"
     assert isinstance(data["start_time"], str)
-    
+
     restored = TaskRecord.from_dict(data)
     assert restored.task_id == record.task_id
     assert restored.result == record.result
@@ -78,7 +78,7 @@ def test_record_task_start(task_history):
     """Test recording task start."""
     task_history.record_task_start("session_001", "task_001", "Test Task")
     record = task_history.get_task_record("task_001")
-    
+
     assert record is not None
     assert record.task_id == "task_001"
     assert record.status == "running"
@@ -88,12 +88,8 @@ def test_record_task_start(task_history):
 def test_record_task_end(task_history):
     """Test recording task end."""
     task_history.record_task_start("session_001", "task_001", "Test Task")
-    task_history.record_task_end(
-        "task_001",
-        "completed",
-        result={"output": "success"}
-    )
-    
+    task_history.record_task_end("task_001", "completed", result={"output": "success"})
+
     record = task_history.get_task_record("task_001")
     assert record.status == "completed"
     assert record.end_time is not None
@@ -104,7 +100,7 @@ def test_get_task_duration(task_history):
     """Test task duration calculation."""
     task_history.record_task_start("session_001", "task_001", "Test Task")
     task_history.record_task_end("task_001", "completed")
-    
+
     duration = task_history.get_task_duration("task_001")
     assert duration is not None
     assert duration >= 0
@@ -115,7 +111,7 @@ def test_get_session_tasks(task_history):
     task_history.record_task_start("session_001", "task_001", "Task 1")
     task_history.record_task_start("session_001", "task_002", "Task 2")
     task_history.record_task_start("session_002", "task_003", "Task 3")
-    
+
     session_tasks = task_history.get_session_tasks("session_001")
     assert len(session_tasks) == 2
 
@@ -124,10 +120,10 @@ def test_get_failed_tasks(task_history):
     """Test retrieving failed tasks."""
     task_history.record_task_start("session_001", "task_001", "Task 1")
     task_history.record_task_end("task_001", "failed", error="Test error")
-    
+
     task_history.record_task_start("session_001", "task_002", "Task 2")
     task_history.record_task_end("task_002", "completed")
-    
+
     failed_tasks = task_history.get_failed_tasks()
     assert len(failed_tasks) >= 1
 
@@ -136,6 +132,6 @@ def test_search_tasks(task_history):
     """Test searching tasks."""
     task_history.record_task_start("session_001", "task_001", "Database Query")
     task_history.record_task_start("session_001", "task_002", "API Request")
-    
+
     results = task_history.search_tasks("Database")
     assert len(results) >= 1

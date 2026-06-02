@@ -76,3 +76,6 @@ asyncio_mode = "auto"
 markers = [
     "integration: tests requiring real Docker services (Postgres, Redis, MinIO, Qdrant)",
 ]
+filterwarnings = [
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.:starlette.exceptions.StarletteDeprecationWarning",
+]

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
-
+from typing import Any, Optional, cast
 
 try:
     import boto3
 except ImportError:
+
     class _MissingBoto3:
         def client(self, *args, **kwargs):
             raise RuntimeError("boto3 is required for S3ObjectStore")
@@ -83,12 +83,14 @@ class S3ObjectStore(ObjectStore):
             if _is_not_found_error(exc):
                 return None
             raise
-        return response["Body"].read()
+        return cast(bytes, response["Body"].read())
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=key)
 
 
 def _is_not_found_error(exc: Exception) -> bool:
-    code = getattr(getattr(exc, "response", {}), "get", lambda *_: {})("Error", {}).get("Code")
+    response = getattr(exc, "response", {})
+    error = response.get("Error", {}) if isinstance(response, dict) else {}
+    code = error.get("Code") if isinstance(error, dict) else None
     return code in {"NoSuchKey", "404", "NotFound"}

@@ -114,6 +114,7 @@ async def request_correlation_middleware(request: Request, call_next):
     finally:
         clear_request_context()
 
+
 # Initialize core engines via RuntimeFactory
 _runtime_settings = get_durable_backend_settings()
 configure_runtime_audit_sinks(_runtime_settings)
@@ -128,29 +129,19 @@ scheduler = _runtime.scheduler
 # ============================================================================
 
 # Task metrics
-tasks_total = Counter(
-    'agentmanager_tasks_total',
-    'Total number of tasks created',
-    ['task_type']
-)
+tasks_total = Counter("agentmanager_tasks_total", "Total number of tasks created", ["task_type"])
 
 task_duration_seconds = Histogram(
-    'agentmanager_task_duration_seconds',
-    'Task execution duration in seconds',
-    ['task_type'],
-    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0)
+    "agentmanager_task_duration_seconds",
+    "Task execution duration in seconds",
+    ["task_type"],
+    buckets=(0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0),
 )
 
-errors_total = Counter(
-    'agentmanager_errors_total',
-    'Total number of task errors',
-    ['error_type']
-)
+errors_total = Counter("agentmanager_errors_total", "Total number of task errors", ["error_type"])
 
 repairs_total = Counter(
-    'agentmanager_repairs_total',
-    'Total number of repairs performed',
-    ['repair_type']
+    "agentmanager_repairs_total", "Total number of repairs performed", ["repair_type"]
 )
 
 # Task timing tracking (for duration calculation)
@@ -204,8 +195,10 @@ if _metrics_enabled:
 # Pydantic Models
 # ============================================================================
 
+
 class TaskRequest(BaseModel):
     """Request to create a task."""
+
     node_id: str = Field(..., min_length=1, max_length=128, description="Unique task ID")
     task_type: str = Field(..., min_length=1, max_length=64, description="Type of task")
     dependencies: List[str] = Field(default_factory=list, description="Dependency task IDs")
@@ -245,6 +238,7 @@ class TaskRequest(BaseModel):
 
 class TaskResponse(BaseModel):
     """Response containing task information."""
+
     node_id: str
     task_type: str
     status: str
@@ -254,12 +248,14 @@ class TaskResponse(BaseModel):
 
 class WorkflowRequest(BaseModel):
     """Request to create a workflow."""
+
     workflow_id: str = Field(..., description="Unique workflow ID")
     tasks: List[TaskRequest] = Field(..., description="List of tasks")
 
 
 class WorkflowResponse(BaseModel):
     """Response containing workflow information."""
+
     workflow_id: str
     tasks: List[TaskResponse]
     status: str
@@ -268,6 +264,7 @@ class WorkflowResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str
     version: str
     timestamp: datetime
@@ -276,6 +273,7 @@ class HealthResponse(BaseModel):
 
 class ReadyTasksResponse(BaseModel):
     """Response containing ready tasks."""
+
     ready_tasks: List[str]
     total_tasks: int
     running_tasks: int
@@ -283,6 +281,7 @@ class ReadyTasksResponse(BaseModel):
 
 class EventResponse(BaseModel):
     """Response containing event information."""
+
     event_id: str
     event_type: str
     workflow_id: str
@@ -293,6 +292,7 @@ class EventResponse(BaseModel):
 # ============================================================================
 # Health & Status Endpoints
 # ============================================================================
+
 
 @app.get("/health", response_model=HealthResponse)
 def health_check(response: Response, strict: bool = False):
@@ -377,6 +377,7 @@ def get_status(_auth=Depends(verify_token)):
 # Task Management Endpoints
 # ============================================================================
 
+
 @app.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
 def create_task(request: TaskRequest, _auth=Depends(verify_token)):
     """Create a new task.
@@ -440,15 +441,18 @@ def create_task(request: TaskRequest, _auth=Depends(verify_token)):
 
         # Publish event
         from agentManager.observability.logging import get_request_id
-        event_bus.publish(Event(
-            event_type=EventType.TASK_CREATED,
-            workflow_id="default",
-            payload={
-                "task_id": request.node_id,
-                "task_type": request.task_type,
-                "correlation_id": get_request_id() or "unknown",
-            },
-        ))
+
+        event_bus.publish(
+            Event(
+                event_type=EventType.TASK_CREATED,
+                workflow_id="default",
+                payload={
+                    "task_id": request.node_id,
+                    "task_type": request.task_type,
+                    "correlation_id": get_request_id() or "unknown",
+                },
+            )
+        )
 
         return {
             "node_id": request.node_id,
@@ -568,11 +572,13 @@ def complete_task(task_id: str, _auth=Depends(verify_token)):
 
         scheduler.mark_completed(task_id)
 
-        event_bus.publish(Event(
-            event_type=EventType.TASK_COMPLETED,
-            workflow_id="default",
-            payload={"task_id": task_id},
-        ))
+        event_bus.publish(
+            Event(
+                event_type=EventType.TASK_COMPLETED,
+                workflow_id="default",
+                payload={"task_id": task_id},
+            )
+        )
 
         return {"task_id": task_id, "status": "completed"}
 
@@ -622,11 +628,13 @@ def fail_task(task_id: str, reason: str = "", _auth=Depends(verify_token)):
 
         scheduler.mark_failed(task_id)
 
-        event_bus.publish(Event(
-            event_type=EventType.TASK_FAILED,
-            workflow_id="default",
-            payload={"task_id": task_id, "reason": reason},
-        ))
+        event_bus.publish(
+            Event(
+                event_type=EventType.TASK_FAILED,
+                workflow_id="default",
+                payload={"task_id": task_id, "reason": reason},
+            )
+        )
 
         return {"task_id": task_id, "status": "failed"}
 

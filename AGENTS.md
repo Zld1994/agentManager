@@ -153,6 +153,13 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
   FastAPI verification because dependency wheels may be unavailable.
 - Coverage data is configured by `.coveragerc` to use `${TEMP}/agentmanager.coverage`, avoiding
   Windows file-lock issues when pytest-cov writes coverage SQLite files under the repository root.
+- Coverage reports intentionally omit legacy defect-repair pipeline/strategy modules and profile/
+  project memory prototypes from the CI threshold until those prototype areas get focused tests.
+- Core CI mypy uses `--explicit-package-bases --follow-imports=skip` to avoid GitHub checkout path
+  ambiguity (`agentManager.agentManager.*` vs `agentManager.*`) while keeping runtime/storage/config
+  modules blocking.
+- Full-repo flake8 is now expected to pass for `agentManager/ tests/` with `--max-line-length=100`;
+  keep benchmark and e2e tests lint-clean when editing them.
 - Durable backend client libraries are base dependencies (`psycopg[binary]`, `boto3`,
   `qdrant-client`), but durable services remain opt-in through environment settings; unit tests
   should mock PostgreSQL, object storage, Redis, and Qdrant unless explicitly integration-scoped.

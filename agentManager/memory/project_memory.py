@@ -78,15 +78,19 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 import time
+
                 current_time = time.time()
                 value_json = json.dumps(value)
 
                 with sqlite3.connect(self.db_path) as conn:
-                    conn.execute("""
+                    conn.execute(
+                        """
                         INSERT OR REPLACE INTO project_memory
                         (namespace, key, value, created_at, updated_at, metadata)
                         VALUES (?, ?, ?, ?, ?, ?)
-                    """, (namespace, key, value_json, current_time, current_time, None))
+                    """,
+                        (namespace, key, value_json, current_time, current_time, None),
+                    )
                     conn.commit()
 
                 logger.debug(f"Stored {namespace}:{key}")
@@ -110,10 +114,13 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT value FROM project_memory
                         WHERE namespace = ? AND key = ?
-                    """, (namespace, key))
+                    """,
+                        (namespace, key),
+                    )
                     row = cursor.fetchone()
 
                 if row:
@@ -123,12 +130,7 @@ class ProjectMemory(MemoryBackend):
                 logger.error(f"Failed to retrieve {namespace}:{key}: {e}")
                 raise
 
-    async def search(
-        self,
-        namespace: str,
-        query: str,
-        limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    async def search(self, namespace: str, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search for values by key substring match.
 
         Args:
@@ -145,20 +147,19 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT key, value FROM project_memory
                         WHERE namespace = ? AND key LIKE ?
                         LIMIT ?
-                    """, (namespace, f"%{query}%", limit))
+                    """,
+                        (namespace, f"%{query}%", limit),
+                    )
                     rows = cursor.fetchall()
 
                 results = []
                 for key, value in rows:
-                    results.append({
-                        "key": key,
-                        "value": json.loads(value),
-                        "namespace": namespace
-                    })
+                    results.append({"key": key, "value": json.loads(value), "namespace": namespace})
                 return results
             except Exception as e:
                 logger.error(f"Search failed in {namespace}: {e}")
@@ -180,10 +181,13 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         DELETE FROM project_memory
                         WHERE namespace = ? AND key = ?
-                    """, (namespace, key))
+                    """,
+                        (namespace, key),
+                    )
                     conn.commit()
                     deleted = cursor.rowcount > 0
 
@@ -209,9 +213,12 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         DELETE FROM project_memory WHERE namespace = ?
-                    """, (namespace,))
+                    """,
+                        (namespace,),
+                    )
                     conn.commit()
                     count = cursor.rowcount
 
@@ -237,10 +244,13 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT 1 FROM project_memory
                         WHERE namespace = ? AND key = ?
-                    """, (namespace, key))
+                    """,
+                        (namespace, key),
+                    )
                     return cursor.fetchone() is not None
             except Exception as e:
                 logger.error(f"Failed to check existence of {namespace}:{key}: {e}")
@@ -261,10 +271,13 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT key, value FROM project_memory
                         WHERE namespace = ?
-                    """, (namespace,))
+                    """,
+                        (namespace,),
+                    )
                     rows = cursor.fetchall()
 
                 result = {}
@@ -290,16 +303,19 @@ class ProjectMemory(MemoryBackend):
         async with self._lock:
             try:
                 with sqlite3.connect(self.db_path) as conn:
-                    cursor = conn.execute("""
+                    cursor = conn.execute(
+                        """
                         SELECT COUNT(*), SUM(LENGTH(value))
                         FROM project_memory WHERE namespace = ?
-                    """, (namespace,))
+                    """,
+                        (namespace,),
+                    )
                     count, total_size = cursor.fetchone()
 
                 return {
                     "namespace": namespace,
                     "entry_count": count or 0,
-                    "total_size_bytes": total_size or 0
+                    "total_size_bytes": total_size or 0,
                 }
             except Exception as e:
                 logger.error(f"Failed to get stats for {namespace}: {e}")

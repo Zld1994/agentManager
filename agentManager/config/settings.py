@@ -13,14 +13,14 @@ logger = logging.getLogger(__name__)
 
 # Common weak passwords to detect
 WEAK_PASSWORDS = {
-    'password',
-    'admin',
-    'minioadmin',
-    'test',
-    'demo',
-    '123456',
-    'password123',
-    'admin123',
+    "password",
+    "admin",
+    "minioadmin",
+    "test",
+    "demo",
+    "123456",
+    "password123",
+    "admin123",
 }
 
 
@@ -40,11 +40,11 @@ def validate_settings(settings: dict[str, str] | None = None) -> None:
     if settings is None:
         # Read from environment variables
         settings = {
-            'POSTGRES_PASSWORD': os.getenv('POSTGRES_PASSWORD', ''),
-            'REDIS_PASSWORD': os.getenv('REDIS_PASSWORD', ''),
-            'MINIO_SECRET_KEY': os.getenv('MINIO_SECRET_KEY', ''),
-            'SECRET_KEY': os.getenv('SECRET_KEY', ''),
-            'QDRANT_API_KEY': os.getenv('QDRANT_API_KEY', ''),
+            "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD", ""),
+            "REDIS_PASSWORD": os.getenv("REDIS_PASSWORD", ""),
+            "MINIO_SECRET_KEY": os.getenv("MINIO_SECRET_KEY", ""),
+            "SECRET_KEY": os.getenv("SECRET_KEY", ""),
+            "QDRANT_API_KEY": os.getenv("QDRANT_API_KEY", ""),
         }
 
     weak_found: Set[str] = set()
@@ -63,7 +63,7 @@ def validate_settings(settings: dict[str, str] | None = None) -> None:
     logger.info("Settings validation passed")
 
 
-def get_setting(key: str, default: str = '') -> str:
+def get_setting(key: str, default: str = "") -> str:
     """Get a setting from environment variables.
 
     Args:
@@ -111,9 +111,7 @@ def get_sandbox_policy_settings() -> dict[str, Any]:
         "network_mode": os.getenv("SANDBOX_NETWORK_MODE", "none"),
         "cpu_limit": float(os.getenv("SANDBOX_CPU_LIMIT", "1.0")),
         "memory_limit": os.getenv("SANDBOX_MEMORY_LIMIT", "512m"),
-        "read_only_rootfs": _parse_bool_setting(
-            os.getenv("SANDBOX_READ_ONLY_ROOTFS", "true")
-        ),
+        "read_only_rootfs": _parse_bool_setting(os.getenv("SANDBOX_READ_ONLY_ROOTFS", "true")),
     }
 
 
@@ -143,20 +141,12 @@ def get_observability_settings() -> dict[str, Any]:
     return {
         "log_level": os.getenv("LOG_LEVEL", "INFO").upper(),
         "log_format": log_format,
-        "request_correlation_header": os.getenv(
-            "REQUEST_CORRELATION_HEADER", "X-Request-ID"
-        ),
+        "request_correlation_header": os.getenv("REQUEST_CORRELATION_HEADER", "X-Request-ID"),
         "workflow_correlation_metadata_key": os.getenv(
             "WORKFLOW_CORRELATION_METADATA_KEY", "correlation_id"
         ),
-        "audit_logger_name": os.getenv(
-            "AUDIT_LOGGER_NAME", "agentManager.audit"
-        ),
-        "otel_tracing_enabled": _parse_bool_setting(
-            os.getenv("OTEL_TRACING_ENABLED", "false")
-        ),
+        "audit_logger_name": os.getenv("AUDIT_LOGGER_NAME", "agentManager.audit"),
+        "otel_tracing_enabled": _parse_bool_setting(os.getenv("OTEL_TRACING_ENABLED", "false")),
         "otel_service_name": os.getenv("OTEL_SERVICE_NAME", "agentManager"),
-        "otel_exporter_otlp_endpoint": os.getenv(
-            "OTEL_EXPORTER_OTLP_ENDPOINT", ""
-        ),
+        "otel_exporter_otlp_endpoint": os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
     }

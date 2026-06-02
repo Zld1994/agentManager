@@ -316,9 +316,7 @@ def test_failing_task_recovers_through_recovery_engine_and_records_memory() -> N
         recovery_strategy=RecoveryStrategy.RETRY,
     )
 
-    recovery_success = asyncio.run(
-        harness_fail.recovery_engine.execute_recovery(recovery_context)
-    )
+    recovery_success = asyncio.run(harness_fail.recovery_engine.execute_recovery(recovery_context))
     assert recovery_success is True
     assert harness_fail.sandbox.attempt_counts["extract"] == 2
     assert harness_fail.state_machine.get_state("extract") == TaskState.COMPLETED
@@ -376,9 +374,7 @@ def test_event_replay_recovery_updates_context_and_records_memory() -> None:
         recovery_strategy=RecoveryStrategy.EVENT_REPLAY,
     )
 
-    recovery_success = asyncio.run(
-        harness.recovery_engine.execute_recovery(recovery_context)
-    )
+    recovery_success = asyncio.run(harness.recovery_engine.execute_recovery(recovery_context))
     assert recovery_success is True
 
     execution_context = harness.task_executor.get_execution_context("extract")
@@ -401,9 +397,7 @@ def test_event_replay_recovery_updates_context_and_records_memory() -> None:
             },
         )
     )
-    memory_entries = asyncio.run(
-        harness.engineering_memory.get_all(namespace=harness.workflow_id)
-    )
+    memory_entries = asyncio.run(harness.engineering_memory.get_all(namespace=harness.workflow_id))
     assert memory_entries["recovery:extract:event-replay"]["success"] is True
 
 
@@ -455,6 +449,4 @@ def test_workflow_loop_missing_repair_code_blocks_without_downstream_corruption(
     execution_context = harness.task_executor.get_execution_context("extract")
     assert execution_context is not None
     assert execution_context.metadata["defect_repair"]["status"] == "skipped"
-    assert "No repairable code" in execution_context.metadata["defect_repair"][
-        "failure_reason"
-    ]
+    assert "No repairable code" in execution_context.metadata["defect_repair"]["failure_reason"]

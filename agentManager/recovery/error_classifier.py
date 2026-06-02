@@ -105,10 +105,7 @@ class ErrorClassifier:
             )
 
         # Check runtime errors
-        if (
-            self._matches_patterns(error_str, self.RUNTIME_PATTERNS)
-            or "error" in error_type_name
-        ):
+        if self._matches_patterns(error_str, self.RUNTIME_PATTERNS) or "error" in error_type_name:
             logger.info(f"Classified error as RUNTIME: {error}")
             return (
                 FailureType.RUNTIME,

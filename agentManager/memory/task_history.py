@@ -32,6 +32,7 @@ class TaskRecord:
         error: Error message if task failed (None if successful)
         metadata: Additional metadata dictionary for extensibility
     """
+
     task_id: str
     session_id: str
     task_name: str
@@ -49,12 +50,12 @@ class TaskRecord:
             Dictionary representation of the task record
         """
         data = asdict(self)
-        data['start_time'] = self.start_time.isoformat()
-        data['end_time'] = self.end_time.isoformat() if self.end_time else None
+        data["start_time"] = self.start_time.isoformat()
+        data["end_time"] = self.end_time.isoformat() if self.end_time else None
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'TaskRecord':
+    def from_dict(cls, data: Dict[str, Any]) -> "TaskRecord":
         """Create TaskRecord from dictionary.
 
         Args:
@@ -64,9 +65,9 @@ class TaskRecord:
             TaskRecord instance
         """
         data = data.copy()
-        data['start_time'] = datetime.fromisoformat(data['start_time'])
-        if data['end_time']:
-            data['end_time'] = datetime.fromisoformat(data['end_time'])
+        data["start_time"] = datetime.fromisoformat(data["start_time"])
+        if data["end_time"]:
+            data["end_time"] = datetime.fromisoformat(data["end_time"])
         return cls(**data)
 
 
@@ -99,7 +100,7 @@ class TaskHistory:
             session_id=session_id,
             task_name=task_name,
             status="running",
-            start_time=utc_now()
+            start_time=utc_now(),
         )
         self._task_cache[task_id] = record
         self._persist_task(record)
@@ -109,7 +110,7 @@ class TaskHistory:
         task_id: str,
         status: str,
         result: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None
+        error: Optional[str] = None,
     ) -> None:
         """Record the completion of a task.
 
@@ -158,8 +159,7 @@ class TaskHistory:
             List of TaskRecord objects for the session
         """
         entries = self.memory_system.search(
-            f"session_id\": \"{session_id}",
-            layer=MemoryLayer.MEDIUM_TERM
+            f'session_id": "{session_id}', layer=MemoryLayer.MEDIUM_TERM
         )
         records = []
         for entry in entries:
@@ -179,14 +179,11 @@ class TaskHistory:
         Returns:
             List of failed TaskRecord objects
         """
-        query = "\"status\": \"failed"
+        query = '"status": "failed'
         if session_id:
-            query += f"\" AND \"session_id\": \"{session_id}"
+            query += f'" AND "session_id": "{session_id}'
 
-        entries = self.memory_system.search(
-            query,
-            layer=MemoryLayer.MEDIUM_TERM
-        )
+        entries = self.memory_system.search(query, layer=MemoryLayer.MEDIUM_TERM)
         records = []
         for entry in entries:
             try:
@@ -211,11 +208,7 @@ class TaskHistory:
             return None
         return (record.end_time - record.start_time).total_seconds()
 
-    def search_tasks(
-        self,
-        query: str,
-        session_id: Optional[str] = None
-    ) -> List[TaskRecord]:
+    def search_tasks(self, query: str, session_id: Optional[str] = None) -> List[TaskRecord]:
         """Search tasks by query string, optionally filtered by session.
 
         Args:
@@ -229,10 +222,7 @@ class TaskHistory:
         if session_id:
             search_query += f" session_id:{session_id}"
 
-        entries = self.memory_system.search(
-            search_query,
-            layer=MemoryLayer.MEDIUM_TERM
-        )
+        entries = self.memory_system.search(search_query, layer=MemoryLayer.MEDIUM_TERM)
         records = []
         for entry in entries:
             try:
@@ -257,7 +247,7 @@ class TaskHistory:
                 "task_id": record.task_id,
                 "session_id": record.session_id,
                 "task_name": record.task_name,
-                "status": record.status
-            }
+                "status": record.status,
+            },
         )
         self.memory_system.store(entry)

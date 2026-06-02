@@ -30,9 +30,7 @@ class CheckpointManager(ABC):
     """Abstract base class for checkpoint management."""
 
     @abstractmethod
-    async def save_checkpoint(
-        self, task_id: str, context: ExecutionContext
-    ) -> None:
+    async def save_checkpoint(self, task_id: str, context: ExecutionContext) -> None:
         """Save execution checkpoint.
 
         Args:
@@ -67,9 +65,7 @@ class WorkerSandbox(ABC):
     """Abstract base class for worker sandbox execution."""
 
     @abstractmethod
-    async def execute(
-        self, task_id: str, task_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+    async def execute(self, task_id: str, task_data: Dict[str, Any]) -> Dict[str, Any]:
         """Execute task in sandbox.
 
         Args:
@@ -85,9 +81,7 @@ class WorkerSandbox(ABC):
         pass
 
     @abstractmethod
-    async def verify(
-        self, task_id: str, result: Dict[str, Any]
-    ) -> bool:
+    async def verify(self, task_id: str, result: Dict[str, Any]) -> bool:
         """Verify task execution result.
 
         Args:
@@ -145,9 +139,7 @@ class TaskExecutor:
         # Task registry for recovery-triggered reruns.
         self._task_registry: Dict[str, TaskLike] = {}
 
-        logger.info(
-            f"TaskExecutor initialized with max_retries={max_retries}"
-        )
+        logger.info(f"TaskExecutor initialized with max_retries={max_retries}")
 
     async def run_task(self, task: TaskLike) -> ExecutionContext:
         task_id = task.node_id
@@ -250,9 +242,7 @@ class TaskExecutor:
             if duration is not None:
                 span.set_attribute("task.duration_ms", duration * 1000)
             if duration is not None:
-                logger.info(
-                    f"Task {task_id} completed successfully in {duration:.2f}s"
-                )
+                logger.info(f"Task {task_id} completed successfully in {duration:.2f}s")
             else:
                 logger.info(f"Task {task_id} completed successfully")
 
@@ -263,9 +253,7 @@ class TaskExecutor:
             logger.error(f"Task {task_id} failed: {str(e)}", exc_info=True)
             span.set_attribute("success", False)
             context.mark_failed(str(e))
-            self.state_machine.transition(
-                task_id, TaskState.FAILED, f"Task failed: {str(e)}"
-            )
+            self.state_machine.transition(task_id, TaskState.FAILED, f"Task failed: {str(e)}")
 
             # Save checkpoint before publishing failure
             await self.checkpoint_manager.save_checkpoint(task_id, context)
@@ -352,14 +340,11 @@ class TaskExecutor:
         for attempt in range(self.max_retries + 1):
             try:
                 logger.info(
-                    f"Executing task {task_id} (attempt {attempt + 1}/"
-                    f"{self.max_retries + 1})"
+                    f"Executing task {task_id} (attempt {attempt + 1}/" f"{self.max_retries + 1})"
                 )
 
                 # Execute task
-                result = await self.worker_sandbox.execute(
-                    task_id, task.metadata
-                )
+                result = await self.worker_sandbox.execute(task_id, task.metadata)
 
                 # Verify result
                 is_valid = await self.worker_sandbox.verify(task_id, result)
@@ -367,17 +352,13 @@ class TaskExecutor:
                 if not is_valid:
                     raise ValueError("Verification failed")
 
-                logger.info(
-                    f"Task {task_id} executed and verified successfully"
-                )
+                logger.info(f"Task {task_id} executed and verified successfully")
                 return result
 
             except Exception as e:
                 last_error = e
                 context.increment_retry()
-                logger.warning(
-                    f"Task {task_id} attempt {attempt + 1} failed: {str(e)}"
-                )
+                logger.warning(f"Task {task_id} attempt {attempt + 1} failed: {str(e)}")
 
                 if attempt < self.max_retries:
                     logger.info(
@@ -389,14 +370,11 @@ class TaskExecutor:
                     break
 
         # All retries exhausted - transition to VERIFYING then fail
-        self.state_machine.transition(
-            task_id, TaskState.VERIFYING, "Verification after retries"
-        )
+        self.state_machine.transition(task_id, TaskState.VERIFYING, "Verification after retries")
 
         # All retries exhausted
         raise Exception(
-            f"Task {task_id} failed after {self.max_retries + 1} attempts: "
-            f"{str(last_error)}"
+            f"Task {task_id} failed after {self.max_retries + 1} attempts: " f"{str(last_error)}"
         )
 
     async def _publish_event(

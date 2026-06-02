@@ -146,10 +146,7 @@ class ObjectStoreAuditSink:
     def write(self, event: AuditEvent) -> None:
         redacted = redact_audit_event(event)
         timestamp = _parse_event_timestamp(redacted.timestamp)
-        key = (
-            f"{self.prefix}/{timestamp:%Y-%m-%d}/{timestamp:%H}/"
-            f"{uuid.uuid4().hex}.json"
-        )
+        key = f"{self.prefix}/{timestamp:%Y-%m-%d}/{timestamp:%H}/" f"{uuid.uuid4().hex}.json"
         self.object_store.put_bytes(
             key,
             json.dumps(redacted.to_dict(), sort_keys=True).encode("utf-8"),
@@ -267,18 +264,21 @@ def _write_to_object_storage(event: AuditEvent) -> None:
 
 # ── Convenience functions ────────────────────────────────────────────────────
 
+
 def log_workflow_created(
     workflow_id: str,
     actor: str = "system",
     task_count: int = 0,
     **extra: Any,
 ) -> None:
-    record_audit_event(AuditEvent(
-        event_type=AuditEventType.WORKFLOW_CREATED,
-        actor=actor,
-        resource=workflow_id,
-        detail={"task_count": task_count, **extra},
-    ))
+    record_audit_event(
+        AuditEvent(
+            event_type=AuditEventType.WORKFLOW_CREATED,
+            actor=actor,
+            resource=workflow_id,
+            detail={"task_count": task_count, **extra},
+        )
+    )
 
 
 def log_task_executed(
@@ -291,12 +291,14 @@ def log_task_executed(
     detail: Dict[str, Any] = {"task_type": task_type, **extra}
     if duration_ms is not None:
         detail["duration_ms"] = duration_ms
-    record_audit_event(AuditEvent(
-        event_type=AuditEventType.TASK_EXECUTED,
-        resource=task_id,
-        outcome=outcome,
-        detail=detail,
-    ))
+    record_audit_event(
+        AuditEvent(
+            event_type=AuditEventType.TASK_EXECUTED,
+            resource=task_id,
+            outcome=outcome,
+            detail=detail,
+        )
+    )
 
 
 def log_sandbox_denied(
@@ -305,12 +307,14 @@ def log_sandbox_denied(
     policy: str = "",
     **extra: Any,
 ) -> None:
-    record_audit_event(AuditEvent(
-        event_type=AuditEventType.SANDBOX_DENIED,
-        resource=task_id,
-        outcome="denied",
-        detail={"reason": reason, "policy": policy, **extra},
-    ))
+    record_audit_event(
+        AuditEvent(
+            event_type=AuditEventType.SANDBOX_DENIED,
+            resource=task_id,
+            outcome="denied",
+            detail={"reason": reason, "policy": policy, **extra},
+        )
+    )
 
 
 def log_recovery_upgrade(
@@ -319,15 +323,17 @@ def log_recovery_upgrade(
     to_strategy: str,
     **extra: Any,
 ) -> None:
-    record_audit_event(AuditEvent(
-        event_type=AuditEventType.RECOVERY_UPGRADE,
-        resource=task_id,
-        detail={
-            "from_strategy": from_strategy,
-            "to_strategy": to_strategy,
-            **extra,
-        },
-    ))
+    record_audit_event(
+        AuditEvent(
+            event_type=AuditEventType.RECOVERY_UPGRADE,
+            resource=task_id,
+            detail={
+                "from_strategy": from_strategy,
+                "to_strategy": to_strategy,
+                **extra,
+            },
+        )
+    )
 
 
 def log_config_validation_failed(
@@ -335,15 +341,18 @@ def log_config_validation_failed(
     reason: str,
     **extra: Any,
 ) -> None:
-    record_audit_event(AuditEvent(
-        event_type=AuditEventType.CONFIG_VALIDATION_FAILED,
-        resource=setting_key,
-        outcome="failure",
-        detail={"reason": reason, **extra},
-    ))
+    record_audit_event(
+        AuditEvent(
+            event_type=AuditEventType.CONFIG_VALIDATION_FAILED,
+            resource=setting_key,
+            outcome="failure",
+            detail={"reason": reason, **extra},
+        )
+    )
 
 
 # ── Compatibility aliases (matching caller signatures in existing modules) ──
+
 
 def audit_recovery_escalated(
     workflow_id: str,
@@ -351,14 +360,16 @@ def audit_recovery_escalated(
     error_msg: str,
 ) -> None:
     """Alias for log_recovery_upgrade with caller-compatible signature."""
-    record_audit_event(AuditEvent(
-        event_type=AuditEventType.RECOVERY_UPGRADE,
-        resource=task_id,
-        detail={
-            "workflow_id": workflow_id,
-            "error_msg": error_msg,
-        },
-    ))
+    record_audit_event(
+        AuditEvent(
+            event_type=AuditEventType.RECOVERY_UPGRADE,
+            resource=task_id,
+            detail={
+                "workflow_id": workflow_id,
+                "error_msg": error_msg,
+            },
+        )
+    )
 
 
 def audit_task_execution(
@@ -366,8 +377,10 @@ def audit_task_execution(
     task_id: str,
 ) -> None:
     """Alias for log_task_executed with caller-compatible signature."""
-    record_audit_event(AuditEvent(
-        event_type=AuditEventType.TASK_EXECUTED,
-        resource=task_id,
-        detail={"workflow_id": workflow_id},
-    ))
+    record_audit_event(
+        AuditEvent(
+            event_type=AuditEventType.TASK_EXECUTED,
+            resource=task_id,
+            detail={"workflow_id": workflow_id},
+        )
+    )

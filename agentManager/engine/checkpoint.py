@@ -116,13 +116,11 @@ def safe_extract(tar: tarfile.TarFile, path: str) -> None:
 
     for member in tar.getmembers():
         # Check for absolute paths first
-        if member.name.startswith('/'):
-            raise ValueError(
-                f"Absolute path detected in archive: {member.name}"
-            )
+        if member.name.startswith("/"):
+            raise ValueError(f"Absolute path detected in archive: {member.name}")
 
         # Check for path traversal
-        if '..' in member.name:
+        if ".." in member.name:
             raise ValueError(
                 f"Path traversal detected: {member.name} attempts to escape "
                 f"target directory {target_path}"
@@ -167,16 +165,12 @@ async def load_checkpoint_with_recovery(
         return None
 
     try:
-        with tarfile.open(checkpoint_file, 'r:gz') as tar:
+        with tarfile.open(checkpoint_file, "r:gz") as tar:
             # Use safe validation before reading any member payloads.
             safe_extract(tar, str(checkpoint_file.parent))
 
             checkpoint_member = next(
-                (
-                    member
-                    for member in tar.getmembers()
-                    if member.name == 'checkpoint.json'
-                ),
+                (member for member in tar.getmembers() if member.name == "checkpoint.json"),
                 None,
             )
             if checkpoint_member is None:
@@ -185,9 +179,7 @@ async def load_checkpoint_with_recovery(
 
             extracted = tar.extractfile(checkpoint_member)
             if extracted is None:
-                logger.warning(
-                    f"Unable to read checkpoint data from {checkpoint_file}"
-                )
+                logger.warning(f"Unable to read checkpoint data from {checkpoint_file}")
                 return None
 
             with extracted:

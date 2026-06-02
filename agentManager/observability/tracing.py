@@ -37,24 +37,21 @@ def setup_tracing(
     global _tracer
 
     if enabled is None:
-        enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() in {
-            "1", "true", "yes", "on"
-        }
+        enabled = os.getenv("OTEL_TRACING_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
     if not enabled:
         logger.debug("OpenTelemetry tracing is disabled")
         return False
 
     service_name = service_name or os.getenv("OTEL_SERVICE_NAME", "agentManager")
-    endpoint = endpoint or os.getenv(
-        "OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317"
-    )
+    endpoint = endpoint or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
     protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc")
 
     if protocol not in _VALID_PROTOCOLS:
         logger.warning(
             "Invalid OTEL_EXPORTER_OTLP_PROTOCOL=%r (must be one of %s). "
             "Falling back to 'grpc'.",
-            protocol, sorted(_VALID_PROTOCOLS),
+            protocol,
+            sorted(_VALID_PROTOCOLS),
         )
         protocol = "grpc"
 
@@ -63,8 +60,7 @@ def setup_tracing(
         sample_rate = float(sample_rate_raw)
     except ValueError:
         logger.warning(
-            "Invalid OTEL_TRACING_SAMPLE_RATE=%r (not a number). "
-            "Falling back to 1.0.",
+            "Invalid OTEL_TRACING_SAMPLE_RATE=%r (not a number). " "Falling back to 1.0.",
             sample_rate_raw,
         )
         sample_rate = 1.0
@@ -92,11 +88,13 @@ def setup_tracing(
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
                 OTLPSpanExporter,
             )
+
             exporter = OTLPSpanExporter(endpoint=endpoint)
         else:
             from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
                 OTLPSpanExporter,
             )
+
             exporter = OTLPSpanExporter(endpoint=endpoint, insecure=True)
 
         provider.add_span_processor(BatchSpanProcessor(exporter))
@@ -104,13 +102,17 @@ def setup_tracing(
         _tracer = trace.get_tracer(service_name)
         logger.info(
             "OpenTelemetry tracing enabled: service=%s endpoint=%s protocol=%s sample_rate=%.2f",
-            service_name, endpoint, protocol, sample_rate
+            service_name,
+            endpoint,
+            protocol,
+            sample_rate,
         )
         return True
     except ImportError:
         logger.warning(
             "OpenTelemetry packages not installed; tracing disabled. "
-            "Install with: pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp"
+            "Install with: pip install opentelemetry-api opentelemetry-sdk "
+            "opentelemetry-exporter-otlp"
         )
         return False
     except Exception:
@@ -119,6 +121,7 @@ def setup_tracing(
 
 
 # ── No-op span for when tracing is off ──────────────────────────────────────
+
 
 class _NoOpSpan:
     """Minimal no-op span that supports context-manager, set_attribute, and end."""
@@ -143,7 +146,9 @@ class _NoOpSpan:
 
 
 @contextmanager
-def create_span(name: str, attributes: Optional[dict[str, Any]] = None) -> Generator[Any, None, None]:
+def create_span(
+    name: str, attributes: Optional[dict[str, Any]] = None
+) -> Generator[Any, None, None]:
     """Create a tracing span (no-op when tracing is disabled)."""
     if _tracer is None:
         yield _NoOpSpan()
@@ -159,6 +164,7 @@ def create_span(name: str, attributes: Optional[dict[str, Any]] = None) -> Gener
             span.record_exception(exc)
             try:
                 from opentelemetry.trace import Status, StatusCode
+
                 span.set_status(Status(StatusCode.ERROR, str(exc)))
             except ImportError:
                 pass
@@ -191,6 +197,7 @@ def get_current_span() -> Any:
         return _NoOpSpan()
     try:
         from opentelemetry import trace
+
         return trace.get_current_span()
     except ImportError:
         return _NoOpSpan()

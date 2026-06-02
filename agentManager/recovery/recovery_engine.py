@@ -108,9 +108,7 @@ class RecoveryEngine:
         try:
             # Select strategy if not already set
             if not ctx.recovery_strategy:
-                ctx.recovery_strategy = self.select_recovery_strategy(
-                    ctx.failure_type
-                )
+                ctx.recovery_strategy = self.select_recovery_strategy(ctx.failure_type)
                 logger.info(
                     f"Selected recovery strategy {ctx.recovery_strategy.value} "
                     f"for failure type {ctx.failure_type.value}"
@@ -130,9 +128,7 @@ class RecoveryEngine:
             elif ctx.recovery_strategy == RecoveryStrategy.ESCALATE:
                 success = await self._execute_escalate(ctx)
             else:
-                logger.error(
-                    f"Unknown recovery strategy: {ctx.recovery_strategy}"
-                )
+                logger.error(f"Unknown recovery strategy: {ctx.recovery_strategy}")
                 success = False
 
             # Publish recovery result event
@@ -184,9 +180,7 @@ class RecoveryEngine:
         finally:
             span_cm.__exit__(*sys.exc_info())
 
-    def select_recovery_strategy(
-        self, failure_type: FailureType
-    ) -> RecoveryStrategy:
+    def select_recovery_strategy(self, failure_type: FailureType) -> RecoveryStrategy:
         """Select recovery strategy based on failure type.
 
         Args:
@@ -204,10 +198,7 @@ class RecoveryEngine:
         }
 
         strategy = strategy_map.get(failure_type, RecoveryStrategy.ESCALATE)
-        logger.info(
-            f"Selected strategy {strategy.value} "
-            f"for failure type {failure_type.value}"
-        )
+        logger.info(f"Selected strategy {strategy.value} " f"for failure type {failure_type.value}")
         return strategy
 
     async def _execute_retry(self, ctx: RecoveryContext) -> bool:
@@ -238,8 +229,7 @@ class RecoveryEngine:
             # Increment retry count
             ctx.retry_count += 1
             logger.info(
-                f"Retrying task {task_id} "
-                f"(attempt {ctx.retry_count}/{self.MAX_RETRY_ATTEMPTS})"
+                f"Retrying task {task_id} " f"(attempt {ctx.retry_count}/{self.MAX_RETRY_ATTEMPTS})"
             )
 
             get_task = getattr(self.task_executor, "get_task", None)
@@ -287,9 +277,7 @@ class RecoveryEngine:
 
         try:
             if not ctx.event_id:
-                logger.warning(
-                    "No event_id provided for EVENT_REPLAY recovery"
-                )
+                logger.warning("No event_id provided for EVENT_REPLAY recovery")
                 return False
 
             # Get events from event bus
@@ -305,18 +293,14 @@ class RecoveryEngine:
                 None,
             )
             if replay_start is None:
-                logger.warning(
-                    f"Event {ctx.event_id} not found in event bus"
-                )
+                logger.warning(f"Event {ctx.event_id} not found in event bus")
                 return False
 
             replay_events = events[replay_start:]
             exec_ctx = self._get_or_create_execution_context(ctx)
             replayed_event_ids = []
 
-            logger.info(
-                f"Found {len(replay_events)} events to replay for task {task_id}"
-            )
+            logger.info(f"Found {len(replay_events)} events to replay for task {task_id}")
 
             for event in replay_events:
                 payload = getattr(event, "payload", {})
@@ -330,9 +314,7 @@ class RecoveryEngine:
                 self._apply_event_to_execution_context(ctx, exec_ctx, event)
 
             if not replayed_event_ids:
-                logger.warning(
-                    "No task-scoped events were replayed for task %s", task_id
-                )
+                logger.warning("No task-scoped events were replayed for task %s", task_id)
                 return False
 
             exec_ctx.metadata["replayed_event_ids"] = replayed_event_ids
@@ -361,9 +343,7 @@ class RecoveryEngine:
 
         try:
             if not ctx.checkpoint_id:
-                logger.warning(
-                    "No checkpoint_id provided for SNAPSHOT_RESTORE recovery"
-                )
+                logger.warning("No checkpoint_id provided for SNAPSHOT_RESTORE recovery")
                 return False
 
             # Load checkpoint
@@ -379,17 +359,12 @@ class RecoveryEngine:
                 and checkpoint_task_id
                 and checkpoint_task_id != task_id
             ):
-                logger.warning(
-                    "Checkpoint task id mismatch for task %s", task_id
-                )
+                logger.warning("Checkpoint task id mismatch for task %s", task_id)
                 return False
 
             expected_checkpoint_id = ctx.checkpoint_id
             actual_checkpoint_id = self._extract_checkpoint_id(checkpoint)
-            if (
-                actual_checkpoint_id is not None
-                and actual_checkpoint_id != expected_checkpoint_id
-            ):
+            if actual_checkpoint_id is not None and actual_checkpoint_id != expected_checkpoint_id:
                 logger.warning(
                     "Checkpoint id mismatch for task %s (expected=%s, got=%s)",
                     task_id,
@@ -398,9 +373,7 @@ class RecoveryEngine:
                 )
                 return False
 
-            logger.info(
-                f"Loaded checkpoint {ctx.checkpoint_id} for task {task_id}"
-            )
+            logger.info(f"Loaded checkpoint {ctx.checkpoint_id} for task {task_id}")
 
             # Restore execution context
             self.task_executor.execution_contexts[task_id] = checkpoint
@@ -411,9 +384,7 @@ class RecoveryEngine:
             return True
 
         except Exception as e:
-            logger.error(
-                f"SNAPSHOT_RESTORE strategy failed: {str(e)}", exc_info=True
-            )
+            logger.error(f"SNAPSHOT_RESTORE strategy failed: {str(e)}", exc_info=True)
             return False
 
     async def _execute_defect_repair(self, ctx: RecoveryContext) -> bool:
@@ -458,9 +429,7 @@ class RecoveryEngine:
 
         error_msg = exec_ctx.error or ctx.error_msg
         execution_trace = (
-            task_metadata.get("execution_trace")
-            or task_metadata.get("trace")
-            or error_msg
+            task_metadata.get("execution_trace") or task_metadata.get("trace") or error_msg
         )
 
         try:
@@ -488,9 +457,7 @@ class RecoveryEngine:
                 }
             )
             if last_result is not None:
-                repair_meta["error_message"] = getattr(
-                    last_result, "error_message", None
-                )
+                repair_meta["error_message"] = getattr(last_result, "error_message", None)
                 repair_meta["metadata"] = getattr(last_result, "metadata", {})
 
             if status == RepairStatus.SUCCESS:
@@ -508,9 +475,7 @@ class RecoveryEngine:
                 return True
 
             if status == RepairStatus.ESCALATED:
-                self._record_manual_intervention(
-                    ctx, RecoveryStrategy.DEFECT_REPAIR.value
-                )
+                self._record_manual_intervention(ctx, RecoveryStrategy.DEFECT_REPAIR.value)
                 self._safe_transition(
                     task_id,
                     TaskState.BLOCKED_HITL,
@@ -579,9 +544,7 @@ class RecoveryEngine:
         logger.info(f"Executing ESCALATE strategy for task {task_id}")
 
         try:
-            self._record_manual_intervention(
-                ctx, RecoveryStrategy.ESCALATE.value
-            )
+            self._record_manual_intervention(ctx, RecoveryStrategy.ESCALATE.value)
             # Log escalation details
             escalation_info = {
                 "task_id": task_id,
@@ -623,11 +586,7 @@ class RecoveryEngine:
             "failure_type": ctx.failure_type.value,
             "error_msg": ctx.error_msg,
             "retry_count": ctx.retry_count,
-            "strategy": (
-                ctx.recovery_strategy.value
-                if ctx.recovery_strategy
-                else None
-            ),
+            "strategy": (ctx.recovery_strategy.value if ctx.recovery_strategy else None),
         }
 
         self.recovery_history[task_id].append(attempt)
@@ -647,16 +606,12 @@ class RecoveryEngine:
             error_msg: Optional error message if recovery failed
         """
         try:
-            event_type = (
-                EventType.TASK_COMPLETED if success else EventType.TASK_FAILED
-            )
+            event_type = EventType.TASK_COMPLETED if success else EventType.TASK_FAILED
 
             payload = {
                 "task_id": ctx.task_id,
                 "recovery_strategy": (
-                    ctx.recovery_strategy.value
-                    if ctx.recovery_strategy
-                    else None
+                    ctx.recovery_strategy.value if ctx.recovery_strategy else None
                 ),
                 "failure_type": ctx.failure_type.value,
                 "success": success,
@@ -679,9 +634,7 @@ class RecoveryEngine:
         except Exception as e:
             logger.error(f"Failed to publish recovery event: {str(e)}")
 
-    def _get_or_create_execution_context(
-        self, ctx: RecoveryContext
-    ) -> ExecutionContext:
+    def _get_or_create_execution_context(self, ctx: RecoveryContext) -> ExecutionContext:
         """Get an existing execution context or create one for recovery metadata."""
         execution_ctx = self.task_executor.get_execution_context(ctx.task_id)
         if execution_ctx:
@@ -706,10 +659,7 @@ class RecoveryEngine:
             return checkpoint_id
         if isinstance(getattr(checkpoint, "metadata", None), dict):
             metadata_checkpoint_id = checkpoint.metadata.get("checkpoint_id")
-            if (
-                isinstance(metadata_checkpoint_id, str)
-                and metadata_checkpoint_id
-            ):
+            if isinstance(metadata_checkpoint_id, str) and metadata_checkpoint_id:
                 return metadata_checkpoint_id
         return None
 
@@ -786,9 +736,7 @@ class RecoveryEngine:
 
         self.state_machine.transition(task_id, TaskState.READY, reason)
 
-    def _safe_transition(
-        self, task_id: str, new_state: TaskState, reason: str
-    ) -> None:
+    def _safe_transition(self, task_id: str, new_state: TaskState, reason: str) -> None:
         """Best-effort state transition for replay operations."""
         try:
             get_state = getattr(self.state_machine, "get_state", None)
@@ -805,14 +753,10 @@ class RecoveryEngine:
                 exc,
             )
 
-    def _record_manual_intervention(
-        self, ctx: RecoveryContext, strategy: str
-    ) -> None:
+    def _record_manual_intervention(self, ctx: RecoveryContext, strategy: str) -> None:
         """Persist manual intervention context for HITL/ESCALATE handling."""
         execution_ctx = self._get_or_create_execution_context(ctx)
-        interventions = execution_ctx.metadata.setdefault(
-            "manual_intervention", []
-        )
+        interventions = execution_ctx.metadata.setdefault("manual_intervention", [])
         interventions.append(
             {
                 "strategy": strategy,

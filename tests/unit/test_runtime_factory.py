@@ -56,12 +56,14 @@ class TestCreateEventBus:
         settings = {"redis_url": ""}
         bus = _create_event_bus(settings)
         from agentManager.engine.event_bus.in_memory import InMemoryEventBus
+
         assert isinstance(bus, InMemoryEventBus)
 
     def test_redis_when_url_configured(self):
         settings = {"redis_url": "redis://localhost:6379"}
         bus = _create_event_bus(settings)
         from agentManager.engine.event_bus.redis_stream import RedisStreamEventBus
+
         assert isinstance(bus, RedisStreamEventBus)
         assert bus.redis_url == "redis://localhost:6379"
 
@@ -73,6 +75,7 @@ class TestCreateEventBus:
         with patch.dict("sys.modules", {"agentManager.engine.event_bus.redis_stream": mock_module}):
             bus = _create_event_bus(settings)
             from agentManager.engine.event_bus.in_memory import InMemoryEventBus
+
             assert isinstance(bus, InMemoryEventBus)
 
 
@@ -86,6 +89,7 @@ class TestCreateCheckpointManager:
         }
         mgr = _create_checkpoint_manager(settings)
         from agentManager.engine.checkpoint import InMemoryCheckpointManager
+
         assert isinstance(mgr, InMemoryCheckpointManager)
 
     def test_in_memory_when_missing_bucket(self):
@@ -97,6 +101,7 @@ class TestCreateCheckpointManager:
         }
         mgr = _create_checkpoint_manager(settings)
         from agentManager.engine.checkpoint import InMemoryCheckpointManager
+
         assert isinstance(mgr, InMemoryCheckpointManager)
 
     def test_object_store_when_configured(self):
@@ -113,6 +118,7 @@ class TestCreateCheckpointManager:
         with patch.dict("sys.modules", {"agentManager.storage.object_store": mock_s3_module}):
             mgr = _create_checkpoint_manager(settings)
             from agentManager.engine.checkpoint import InMemoryCheckpointManager
+
             assert not isinstance(mgr, InMemoryCheckpointManager)
 
 
@@ -121,6 +127,7 @@ class TestCreateMemorySystem:
         settings = {"vector_backend": "sqlite"}
         mem = _create_memory_system(settings)
         from agentManager.memory.memory_system import MemorySystem
+
         assert isinstance(mem, MemorySystem)
         assert mem.backend == "sqlite"
         mem.close()
@@ -129,6 +136,7 @@ class TestCreateMemorySystem:
         settings = {"vector_backend": "qdrant"}
         mem = _create_memory_system(settings)
         from agentManager.memory.memory_system import MemorySystem
+
         assert isinstance(mem, MemorySystem)
         assert mem.backend == "sqlite"
         mem.close()
@@ -216,15 +224,17 @@ class TestConfigureRuntimeAuditSinks:
 
 class TestCreateRuntime:
     def test_default_creates_in_memory(self):
-        runtime = create_runtime(settings={
-            "database_url": "",
-            "redis_url": "",
-            "object_store_endpoint": "",
-            "object_store_bucket": "",
-            "object_store_access_key": "",
-            "object_store_secret_key": "",
-            "vector_backend": "sqlite",
-        })
+        runtime = create_runtime(
+            settings={
+                "database_url": "",
+                "redis_url": "",
+                "object_store_endpoint": "",
+                "object_store_bucket": "",
+                "object_store_access_key": "",
+                "object_store_secret_key": "",
+                "vector_backend": "sqlite",
+            }
+        )
         assert isinstance(runtime, Runtime)
         assert runtime.dag_engine is not None
         assert runtime.state_machine is not None

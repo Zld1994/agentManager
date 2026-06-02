@@ -53,10 +53,8 @@ class InMemoryEventBus:
             event.payload = {**event.payload, "correlation_id": correlation_id}
         self.events.append(event)
         if self.max_events > 0 and len(self.events) > self.max_events:
-            del self.events[:len(self.events) - self.max_events]
-        logger.info(
-            f"Published event: {event.event_type.value} for workflow {event.workflow_id}"
-        )
+            del self.events[: len(self.events) - self.max_events]
+        logger.info(f"Published event: {event.event_type.value} for workflow {event.workflow_id}")
 
         # Trigger both exact and wildcard subscriptions
         keys = [

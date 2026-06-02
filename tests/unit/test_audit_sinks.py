@@ -55,9 +55,12 @@ def test_postgres_audit_sink_maps_event_to_audit_record():
         "outcome": "success",
         "detail": {"duration_ms": 12.5},
     }
-    assert record.content_hash == hashlib.sha256(
-        json.dumps(expected_payload, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    assert (
+        record.content_hash
+        == hashlib.sha256(
+            json.dumps(expected_payload, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def test_postgres_audit_sink_hashes_redacted_payload():
@@ -75,9 +78,12 @@ def test_postgres_audit_sink_hashes_redacted_payload():
 
     record = repository.append_audit_record.call_args.args[0]
     assert record.payload["detail"]["token"] == "***REDACTED***"
-    assert record.content_hash == hashlib.sha256(
-        json.dumps(record.payload, sort_keys=True, default=str).encode("utf-8")
-    ).hexdigest()
+    assert (
+        record.content_hash
+        == hashlib.sha256(
+            json.dumps(record.payload, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def test_object_store_audit_sink_writes_hourly_json_object():
@@ -113,12 +119,10 @@ def test_audit_sink_failure_counter_increments_when_sink_fails():
     repository.append_audit_record.side_effect = RuntimeError("db down")
     configure_audit_sinks("log,db", repository=repository)
 
-    before = REGISTRY.get_sample_value(
-        "agentmanager_audit_sink_failures_total", {"sink": "db"}
-    ) or 0
-    record_audit_event(_sample_event())
-    after = REGISTRY.get_sample_value(
-        "agentmanager_audit_sink_failures_total", {"sink": "db"}
+    before = (
+        REGISTRY.get_sample_value("agentmanager_audit_sink_failures_total", {"sink": "db"}) or 0
     )
+    record_audit_event(_sample_event())
+    after = REGISTRY.get_sample_value("agentmanager_audit_sink_failures_total", {"sink": "db"})
 
     assert after == before + 1

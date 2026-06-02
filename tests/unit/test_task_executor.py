@@ -32,9 +32,7 @@ class MockCheckpointManager(CheckpointManager):
         """Initialize mock checkpoint manager."""
         self.checkpoints = {}
 
-    async def save_checkpoint(
-        self, task_id: str, context: ExecutionContext
-    ) -> None:
+    async def save_checkpoint(self, task_id: str, context: ExecutionContext) -> None:
         """Save checkpoint."""
         self.checkpoints[task_id] = context
 
@@ -63,9 +61,7 @@ class MockWorkerSandbox(WorkerSandbox):
         self.execute_count = 0
         self.verify_count = 0
 
-    async def execute(
-        self, task_id: str, task_data: dict
-    ) -> dict:
+    async def execute(self, task_id: str, task_data: dict) -> dict:
         """Execute task."""
         self.execute_count += 1
         if self.should_fail:
@@ -210,9 +206,7 @@ class TestTaskExecution:
     """Test task execution."""
 
     @pytest.mark.asyncio
-    async def test_successful_task_execution(
-        self, task_executor, sample_task
-    ):
+    async def test_successful_task_execution(self, task_executor, sample_task):
         """Test successful task execution."""
         context = await task_executor.run_task(sample_task)
 
@@ -223,9 +217,7 @@ class TestTaskExecution:
         assert context.retry_count == 0
 
     @pytest.mark.asyncio
-    async def test_run_task_traces_task_execution(
-        self, task_executor, sample_task, monkeypatch
-    ):
+    async def test_run_task_traces_task_execution(self, task_executor, sample_task, monkeypatch):
         """Task execution should create an observability span."""
         spans = []
 
@@ -351,9 +343,9 @@ class TestTaskExecution:
 
         assert result["success"] is False
         assert result["error"] == "Verification failed"
-        assert executor.get_execution_context(
-            "task_1"
-        ).metadata["repair_verification_failed"] is True
+        assert (
+            executor.get_execution_context("task_1").metadata["repair_verification_failed"] is True
+        )
 
     @pytest.mark.asyncio
     async def test_execute_adapter_propagates_sandbox_exception(
@@ -378,9 +370,7 @@ class TestStateTransitions:
     """Test state transitions during execution."""
 
     @pytest.mark.asyncio
-    async def test_state_transitions_on_success(
-        self, task_executor, sample_task
-    ):
+    async def test_state_transitions_on_success(self, task_executor, sample_task):
         """Test state transitions on successful execution."""
         await task_executor.run_task(sample_task)
 
@@ -431,28 +421,20 @@ class TestEventPublishing:
     """Test event publishing."""
 
     @pytest.mark.asyncio
-    async def test_task_started_event(
-        self, task_executor, sample_task
-    ):
+    async def test_task_started_event(self, task_executor, sample_task):
         """Test TASK_STARTED event is published."""
         await task_executor.run_task(sample_task)
 
-        events = await task_executor.event_bus.get_events(
-            event_type=EventType.TASK_STARTED
-        )
+        events = await task_executor.event_bus.get_events(event_type=EventType.TASK_STARTED)
         assert len(events) == 1
         assert events[0].payload["task_id"] == "task_1"
 
     @pytest.mark.asyncio
-    async def test_task_completed_event(
-        self, task_executor, sample_task
-    ):
+    async def test_task_completed_event(self, task_executor, sample_task):
         """Test TASK_COMPLETED event is published."""
         await task_executor.run_task(sample_task)
 
-        events = await task_executor.event_bus.get_events(
-            event_type=EventType.TASK_COMPLETED
-        )
+        events = await task_executor.event_bus.get_events(event_type=EventType.TASK_COMPLETED)
         assert len(events) == 1
         assert events[0].payload["task_id"] == "task_1"
         assert events[0].payload["status"] == "completed"
@@ -483,9 +465,7 @@ class TestEventPublishing:
         with pytest.raises(Exception):
             await executor.run_task(task)
 
-        events = await executor.event_bus.get_events(
-            event_type=EventType.TASK_FAILED
-        )
+        events = await executor.event_bus.get_events(event_type=EventType.TASK_FAILED)
         assert len(events) == 1
         assert events[0].payload["task_id"] == "task_1"
         assert events[0].payload["status"] == "failed"
@@ -495,15 +475,11 @@ class TestCheckpointManagement:
     """Test checkpoint management."""
 
     @pytest.mark.asyncio
-    async def test_checkpoint_saved_on_success(
-        self, task_executor, sample_task
-    ):
+    async def test_checkpoint_saved_on_success(self, task_executor, sample_task):
         """Test checkpoint is saved on successful execution."""
         await task_executor.run_task(sample_task)
 
-        checkpoint = await task_executor.checkpoint_manager.load_checkpoint(
-            "task_1"
-        )
+        checkpoint = await task_executor.checkpoint_manager.load_checkpoint("task_1")
         assert checkpoint is not None
         assert checkpoint.task_id == "task_1"
         assert checkpoint.status == ExecutionStatus.COMPLETED
@@ -534,22 +510,16 @@ class TestCheckpointManagement:
         with pytest.raises(Exception):
             await executor.run_task(task)
 
-        checkpoint = await executor.checkpoint_manager.load_checkpoint(
-            "task_1"
-        )
+        checkpoint = await executor.checkpoint_manager.load_checkpoint("task_1")
         assert checkpoint is not None
         assert checkpoint.status == ExecutionStatus.FAILED
 
     @pytest.mark.asyncio
-    async def test_checkpoint_contains_metadata(
-        self, task_executor, sample_task
-    ):
+    async def test_checkpoint_contains_metadata(self, task_executor, sample_task):
         """Test checkpoint contains execution metadata."""
         await task_executor.run_task(sample_task)
 
-        checkpoint = await task_executor.checkpoint_manager.load_checkpoint(
-            "task_1"
-        )
+        checkpoint = await task_executor.checkpoint_manager.load_checkpoint("task_1")
         assert checkpoint.workflow_id == "workflow_1"
         assert checkpoint.metadata["param1"] == "value1"
         assert checkpoint.start_time is not None
@@ -560,9 +530,7 @@ class TestExecutionContextManagement:
     """Test execution context management."""
 
     @pytest.mark.asyncio
-    async def test_get_execution_context(
-        self, task_executor, sample_task
-    ):
+    async def test_get_execution_context(self, task_executor, sample_task):
         """Test retrieving execution context."""
         await task_executor.run_task(sample_task)
 
@@ -605,9 +573,7 @@ class TestExecutionContextManagement:
         assert "task_2" in contexts
 
     @pytest.mark.asyncio
-    async def test_cleanup_execution_context(
-        self, task_executor, sample_task
-    ):
+    async def test_cleanup_execution_context(self, task_executor, sample_task):
         """Test cleaning up execution context."""
         await task_executor.run_task(sample_task)
 

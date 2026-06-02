@@ -83,13 +83,13 @@ jobs:
       - name: Run mypy type checking (core modules)
         id: mypy-core
         run: |
-          mypy agentManager/runtime/ agentManager/storage/ agentManager/config/ --ignore-missing-imports
+          mypy agentManager/runtime/ agentManager/storage/ agentManager/config/ --ignore-missing-imports --explicit-package-bases --follow-imports=skip
 
       - name: Run mypy type checking (advisory)
         id: mypy-advisory
         if: always()
         run: |
-          mypy agentManager/ --ignore-missing-imports || true
+          mypy agentManager/ --ignore-missing-imports --explicit-package-bases || true
 
       - name: Run flake8 code style check
         id: flake8

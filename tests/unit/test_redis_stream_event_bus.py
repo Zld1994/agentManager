@@ -528,9 +528,7 @@ class TestRedisStreamEventBusStreamInfo:
             mock_client = AsyncMock()
             mock_client.ping = AsyncMock(return_value=True)
             mock_client.xgroup_create = AsyncMock()
-            mock_client.xinfo_stream = AsyncMock(
-                return_value={"length": 10, "radix-tree-keys": 1}
-            )
+            mock_client.xinfo_stream = AsyncMock(return_value={"length": 10, "radix-tree-keys": 1})
             mock_redis.return_value = mock_client
 
             await redis_event_bus.connect()

@@ -85,9 +85,7 @@ class PostgresStateRepository(StateRepository):
             import psycopg
             from psycopg.rows import dict_row
         except ImportError as exc:
-            raise RuntimeError(
-                "psycopg is required for PostgresStateRepository"
-            ) from exc
+            raise RuntimeError("psycopg is required for PostgresStateRepository") from exc
 
         return cls(psycopg.connect(database_url, row_factory=dict_row))
 
@@ -321,5 +319,6 @@ def _transition_from_row(row: Any) -> StateTransition:
 def _payload_from_row(row: Any) -> dict[str, Any]:
     payload = _row_value(row, "payload", 0)
     if isinstance(payload, str):
-        return json.loads(payload)
-    return payload
+        loaded_payload = json.loads(payload)
+        return loaded_payload if isinstance(loaded_payload, dict) else {}
+    return payload if isinstance(payload, dict) else {}

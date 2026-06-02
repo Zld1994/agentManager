@@ -23,11 +23,7 @@ class RecordingStateRepository(StateRepository):
         self.transitions.append(transition)
 
     def load_transitions(self, task_id):
-        return [
-            transition
-            for transition in self.transitions
-            if transition.task_id == task_id
-        ]
+        return [transition for transition in self.transitions if transition.task_id == task_id]
 
     def append_audit_record(self, record):
         self.audit_records.append(record)

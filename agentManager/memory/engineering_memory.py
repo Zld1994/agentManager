@@ -58,8 +58,7 @@ class EngineeringMemory(MemoryBackend):
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS engineering_memory (
                     namespace TEXT NOT NULL,
                     key TEXT NOT NULL,
@@ -71,26 +70,19 @@ class EngineeringMemory(MemoryBackend):
                     metadata TEXT,
                     PRIMARY KEY (namespace, key)
                 )
-                """
-            )
-            conn.execute(
-                """
+                """)
+            conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_namespace
                 ON engineering_memory(namespace)
-                """
-            )
-            conn.execute(
-                """
+                """)
+            conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_content_type
                 ON engineering_memory(content_type)
-                """
-            )
-            conn.execute(
-                """
+                """)
+            conn.execute("""
                 CREATE INDEX IF NOT EXISTS idx_created_at
                 ON engineering_memory(created_at)
-                """
-            )
+                """)
             conn.commit()
 
     async def put(self, namespace: str, key: str, value: Any) -> None:
@@ -102,7 +94,9 @@ class EngineeringMemory(MemoryBackend):
                 import time
 
                 current_time = time.time()
-                content_type = value.get("type", "general") if isinstance(value, dict) else "general"
+                content_type = (
+                    value.get("type", "general") if isinstance(value, dict) else "general"
+                )
                 tags = value.get("tags", []) if isinstance(value, dict) else []
                 value_json = json.dumps(value)
                 tags_json = json.dumps(tags)
@@ -111,7 +105,8 @@ class EngineeringMemory(MemoryBackend):
                     conn.execute(
                         """
                         INSERT OR REPLACE INTO engineering_memory
-                        (namespace, key, value, content_type, created_at, updated_at, tags, metadata)
+                        (namespace, key, value, content_type,
+                         created_at, updated_at, tags, metadata)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (

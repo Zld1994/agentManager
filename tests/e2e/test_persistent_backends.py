@@ -13,20 +13,16 @@ Run with:
 from __future__ import annotations
 
 import asyncio
-import json
 import os
-import tempfile
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.engine.checkpoint import (
     InMemoryCheckpointManager,
     ObjectStoreCheckpointManager,
 )
-from agentManager.runtime.factory import Runtime, create_runtime
+from agentManager.engine.state_manager import StateMachine, TaskState
+from agentManager.runtime.factory import create_runtime
 
 
 class MockObjectStore:
@@ -87,15 +83,17 @@ class TestRuntimeFactoryWiring:
     """Test that RuntimeFactory correctly wires all backends."""
 
     def test_default_runtime_uses_in_memory_backends(self):
-        runtime = create_runtime(settings={
-            "database_url": "",
-            "redis_url": "",
-            "object_store_endpoint": "",
-            "object_store_bucket": "",
-            "object_store_access_key": "",
-            "object_store_secret_key": "",
-            "vector_backend": "sqlite",
-        })
+        runtime = create_runtime(
+            settings={
+                "database_url": "",
+                "redis_url": "",
+                "object_store_endpoint": "",
+                "object_store_bucket": "",
+                "object_store_access_key": "",
+                "object_store_secret_key": "",
+                "vector_backend": "sqlite",
+            }
+        )
         assert runtime.state_machine.repository is None
         assert isinstance(runtime.checkpoint_manager, InMemoryCheckpointManager)
         if runtime.memory_system is not None:

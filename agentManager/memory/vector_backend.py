@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
-
 _SAFE_TABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -124,22 +123,18 @@ class SQLiteVectorSearchBackend(VectorSearchBackend):
 
     def _init_db(self) -> None:
         with sqlite3.connect(self.db_path) as conn:
-            conn.execute(
-                f"""
+            conn.execute(f"""
                 CREATE TABLE IF NOT EXISTS {self.table_name} (
                     namespace TEXT NOT NULL,
                     key TEXT NOT NULL,
                     tokens TEXT NOT NULL,
                     PRIMARY KEY (namespace, key)
                 )
-                """
-            )
-            conn.execute(
-                f"""
+                """)
+            conn.execute(f"""
                 CREATE INDEX IF NOT EXISTS idx_{self.table_name}_namespace
                 ON {self.table_name}(namespace)
-                """
-            )
+                """)
             conn.commit()
 
     async def upsert(self, namespace: str, key: str, text: str) -> None:

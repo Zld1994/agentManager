@@ -18,6 +18,7 @@ def utc_now() -> datetime:
 
 class EventType(str, Enum):
     """Task event types."""
+
     TASK_CREATED = "task_created"
     TASK_STARTED = "task_started"
     TASK_COMPLETED = "task_completed"
@@ -31,6 +32,7 @@ class EventType(str, Enum):
 @dataclass
 class Event:
     """Represents a task event."""
+
     event_type: EventType
     workflow_id: str
     payload: Dict[str, Any] = field(default_factory=dict)
@@ -58,9 +60,11 @@ class Event:
             workflow_id=data["workflow_id"],
             payload=data.get("payload", {}),
             event_id=data.get("event_id", str(uuid.uuid4())),
-            timestamp=datetime.fromisoformat(data["timestamp"])
-            if isinstance(data.get("timestamp"), str)
-            else data.get("timestamp", utc_now()),
+            timestamp=(
+                datetime.fromisoformat(data["timestamp"])
+                if isinstance(data.get("timestamp"), str)
+                else data.get("timestamp", utc_now())
+            ),
         )
 
 

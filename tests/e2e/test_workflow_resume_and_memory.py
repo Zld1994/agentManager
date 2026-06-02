@@ -14,24 +14,19 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
+from agentManager.defect_repair.repair_strategies import RepairResult, RepairStatus
+from agentManager.engine.event_bus.base import BaseEventBus, Event
 from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.memory.memory_backend import MemoryBackend
-from agentManager.recovery.recovery_context import (
-    FailureType,
-    RecoveryContext,
-    RecoveryStrategy,
-)
 from agentManager.recovery.recovery_engine import RecoveryEngine
-from agentManager.runtime.execution_context import ExecutionContext, ExecutionStatus
+from agentManager.runtime.execution_context import ExecutionContext
 from agentManager.runtime.task_executor import (
     CheckpointManager,
     TaskExecutor,
     WorkerSandbox,
 )
 from agentManager.runtime.workflow_coordinator import WorkflowCoordinator
-from agentManager.defect_repair.repair_strategies import RepairResult, RepairStatus
 
 
 class FakeTaskStatus(str, Enum):
@@ -68,10 +63,7 @@ class FakeDAGEngine:
         for task_id, node in self.nodes.items():
             if node.status != FakeTaskStatus.PENDING:
                 continue
-            if all(
-                self.nodes[dep].status == FakeTaskStatus.COMPLETED
-                for dep in node.dependencies
-            ):
+            if all(self.nodes[dep].status == FakeTaskStatus.COMPLETED for dep in node.dependencies):
                 ready.append(task_id)
         return ready
 
@@ -322,16 +314,12 @@ def test_memory_write_back_on_task_completion() -> None:
     """Completed tasks should automatically write results to memory backend."""
     harness = _build_p3_harness()
 
-    result = asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    result = asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
 
     assert result.success is True
     assert result.completed_tasks == ["extract", "transform", "load"]
 
-    entries = asyncio.run(
-        harness.memory_backend.get_all(namespace=harness.workflow_id)
-    )
+    entries = asyncio.run(harness.memory_backend.get_all(namespace=harness.workflow_id))
     assert "task:extract:completed" in entries
     assert "task:transform:completed" in entries
     assert "task:load:completed" in entries
@@ -351,15 +339,11 @@ def test_memory_write_back_on_recovery_success() -> None:
         include_repair_code=True,
     )
 
-    result = asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    result = asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
 
     assert result.success is True
 
-    entries = asyncio.run(
-        harness.memory_backend.get_all(namespace=harness.workflow_id)
-    )
+    entries = asyncio.run(harness.memory_backend.get_all(namespace=harness.workflow_id))
     recovery_keys = [k for k in entries if k.startswith("recovery:")]
     assert len(recovery_keys) >= 1
 
@@ -373,9 +357,7 @@ def test_no_memory_write_back_when_backend_is_none() -> None:
     """When no memory backend is provided, no write-back should occur."""
     harness = _build_p3_harness(with_memory=False)
 
-    result = asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    result = asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
 
     assert result.success is True
     assert harness.memory_backend is None
@@ -457,9 +439,7 @@ def test_resume_workflow_skips_completed_tasks() -> None:
     """resume_workflow should skip tasks already completed in checkpoint."""
     harness = _build_p3_harness()
 
-    result = asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    result = asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
     assert result.success is True
     assert len(harness.sandbox.execution_order) == 3
 
@@ -494,9 +474,7 @@ def test_resume_workflow_skips_completed_tasks() -> None:
         state_machine=new_state_machine,
     )
 
-    resumed = asyncio.run(
-        new_coordinator.resume_workflow(workflow_id=harness.workflow_id)
-    )
+    resumed = asyncio.run(new_coordinator.resume_workflow(workflow_id=harness.workflow_id))
 
     assert resumed.success is True
     assert len(new_sandbox.execution_order) == 0
@@ -506,9 +484,7 @@ def test_resume_workflow_continues_incomplete_tasks() -> None:
     """resume_workflow should continue tasks not yet completed."""
     harness = _build_p3_harness()
 
-    asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
 
     for node_id in ["transform", "load"]:
         node = harness.dag.get_node(node_id)
@@ -546,9 +522,7 @@ def test_resume_workflow_continues_incomplete_tasks() -> None:
         state_machine=new_state_machine,
     )
 
-    resumed = asyncio.run(
-        new_coordinator.resume_workflow(workflow_id=harness.workflow_id)
-    )
+    resumed = asyncio.run(new_coordinator.resume_workflow(workflow_id=harness.workflow_id))
 
     assert resumed.success is True
     assert "transform" in resumed.completed_tasks
@@ -561,9 +535,7 @@ def test_resume_workflow_with_no_checkpoints_runs_all() -> None:
     harness = _build_p3_harness()
     harness.checkpoint_manager.checkpoints.clear()
 
-    result = asyncio.run(
-        harness.coordinator.resume_workflow(workflow_id=harness.workflow_id)
-    )
+    result = asyncio.run(harness.coordinator.resume_workflow(workflow_id=harness.workflow_id))
 
     assert result.success is True
     assert len(result.completed_tasks) == 3
@@ -579,9 +551,7 @@ def test_workflow_crash_restart_recovers_from_persisted_state() -> None:
     with the same checkpoint manager and a fresh state machine."""
     harness = _build_p3_harness()
 
-    partial_result = asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    partial_result = asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
     assert partial_result.success is True
 
     harness.dag.get_node("transform").status = FakeTaskStatus.PENDING
@@ -620,9 +590,7 @@ def test_workflow_crash_restart_recovers_from_persisted_state() -> None:
         state_machine=new_state_machine,
     )
 
-    recovered = asyncio.run(
-        new_coordinator.resume_workflow(workflow_id=harness.workflow_id)
-    )
+    recovered = asyncio.run(new_coordinator.resume_workflow(workflow_id=harness.workflow_id))
 
     assert recovered.success is True
     assert "transform" in recovered.completed_tasks
@@ -635,9 +603,7 @@ def test_workflow_crash_mid_task_resumes_correctly() -> None:
     """A task that was running when crash occurred should re-execute."""
     harness = _build_p3_harness()
 
-    asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
 
     harness.dag.get_node("transform").status = FakeTaskStatus.RUNNING
     harness.checkpoint_manager.checkpoints.pop("transform", None)
@@ -675,9 +641,7 @@ def test_workflow_crash_mid_task_resumes_correctly() -> None:
         state_machine=new_state_machine,
     )
 
-    recovered = asyncio.run(
-        new_coordinator.resume_workflow(workflow_id=harness.workflow_id)
-    )
+    recovered = asyncio.run(new_coordinator.resume_workflow(workflow_id=harness.workflow_id))
 
     assert recovered.success is True
     assert "transform" in new_sandbox.execution_order
@@ -688,9 +652,7 @@ def test_crash_recovery_with_memory_write_back() -> None:
     """Crash recovery should also write results to memory backend."""
     harness = _build_p3_harness()
 
-    asyncio.run(
-        harness.coordinator.run_workflow(workflow_id=harness.workflow_id)
-    )
+    asyncio.run(harness.coordinator.run_workflow(workflow_id=harness.workflow_id))
 
     harness.dag.get_node("load").status = FakeTaskStatus.PENDING
     harness.checkpoint_manager.checkpoints.pop("load", None)
@@ -728,9 +690,7 @@ def test_crash_recovery_with_memory_write_back() -> None:
         memory_backend=new_memory,
     )
 
-    recovered = asyncio.run(
-        new_coordinator.resume_workflow(workflow_id=harness.workflow_id)
-    )
+    recovered = asyncio.run(new_coordinator.resume_workflow(workflow_id=harness.workflow_id))
 
     assert recovered.success is True
 

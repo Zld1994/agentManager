@@ -21,6 +21,7 @@ def utc_now() -> datetime:
 
 class TaskState(str, Enum):
     """Task execution states."""
+
     PENDING = "pending"
     READY = "ready"
     IMPLEMENTING = "implementing"
@@ -34,6 +35,7 @@ class TaskState(str, Enum):
 @dataclass
 class StateTransition:
     """Record of a state transition."""
+
     task_id: str
     from_state: TaskState
     to_state: TaskState
@@ -151,18 +153,17 @@ class StateMachine:
         current_state = self.states[task_id]
 
         # Allow emergency transitions from any non-terminal state
-        emergency_transition = (
-            new_state in [TaskState.BLOCKED_HITL, TaskState.COMPLETED, TaskState.FAILED]
-            and current_state not in [TaskState.COMPLETED, TaskState.BLOCKED_HITL]
-        )
+        emergency_transition = new_state in [
+            TaskState.BLOCKED_HITL,
+            TaskState.COMPLETED,
+            TaskState.FAILED,
+        ] and current_state not in [TaskState.COMPLETED, TaskState.BLOCKED_HITL]
 
         # Check if transition is valid
         if not emergency_transition:
             valid_next_states = self.VALID_TRANSITIONS.get(current_state, [])
             if new_state not in valid_next_states:
-                raise ValueError(
-                    f"Invalid transition: {current_state.value} → {new_state.value}"
-                )
+                raise ValueError(f"Invalid transition: {current_state.value} → {new_state.value}")
 
         # Record transition
         transition = StateTransition(

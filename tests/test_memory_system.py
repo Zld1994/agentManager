@@ -4,18 +4,15 @@ Tests cover SessionMemory, ProjectMemory, EngineeringMemory, and integration.
 """
 
 import asyncio
-import json
 import pytest
 import tempfile
 import uuid
 from pathlib import Path
-from datetime import datetime
 
 from agentManager.memory import (
     SessionMemory,
     ProjectMemory,
     EngineeringMemory,
-    MemoryBackend,
 )
 
 
@@ -232,7 +229,7 @@ class TestEngineeringMemory:
         error_data = {
             "content": "Database connection timeout error",
             "type": "error",
-            "tags": ["database", "timeout"]
+            "tags": ["database", "timeout"],
         }
         await engineering_memory.put("eng_ns", "error_001", error_data)
         result = await engineering_memory.get("eng_ns", "error_001")
@@ -241,18 +238,15 @@ class TestEngineeringMemory:
     @pytest.mark.asyncio
     async def test_vector_search(self, engineering_memory):
         """Test vector similarity search."""
-        await engineering_memory.put("eng_ns", "error_1", {
-            "content": "Database connection timeout error",
-            "type": "error"
-        })
-        await engineering_memory.put("eng_ns", "error_2", {
-            "content": "Network timeout during API call",
-            "type": "error"
-        })
-        await engineering_memory.put("eng_ns", "fix_1", {
-            "content": "Increase retry count for resilience",
-            "type": "fix"
-        })
+        await engineering_memory.put(
+            "eng_ns", "error_1", {"content": "Database connection timeout error", "type": "error"}
+        )
+        await engineering_memory.put(
+            "eng_ns", "error_2", {"content": "Network timeout during API call", "type": "error"}
+        )
+        await engineering_memory.put(
+            "eng_ns", "fix_1", {"content": "Increase retry count for resilience", "type": "fix"}
+        )
 
         results = await engineering_memory.search("eng_ns", "timeout", limit=10)
         assert len(results) >= 2
@@ -263,14 +257,10 @@ class TestEngineeringMemory:
     @pytest.mark.asyncio
     async def test_get_by_type(self, engineering_memory):
         """Test filtering by content type."""
-        await engineering_memory.put("eng_ns", "error_1", {
-            "content": "Error message",
-            "type": "error"
-        })
-        await engineering_memory.put("eng_ns", "fix_1", {
-            "content": "Fix message",
-            "type": "fix"
-        })
+        await engineering_memory.put(
+            "eng_ns", "error_1", {"content": "Error message", "type": "error"}
+        )
+        await engineering_memory.put("eng_ns", "fix_1", {"content": "Fix message", "type": "fix"})
 
         errors = await engineering_memory.get_by_type("eng_ns", "error", limit=10)
         assert len(errors) == 1
@@ -311,14 +301,8 @@ class TestEngineeringMemory:
     @pytest.mark.asyncio
     async def test_get_namespace_stats(self, engineering_memory):
         """Test namespace statistics with type distribution."""
-        await engineering_memory.put("eng_ns", "error_1", {
-            "content": "Error",
-            "type": "error"
-        })
-        await engineering_memory.put("eng_ns", "fix_1", {
-            "content": "Fix",
-            "type": "fix"
-        })
+        await engineering_memory.put("eng_ns", "error_1", {"content": "Error", "type": "error"})
+        await engineering_memory.put("eng_ns", "fix_1", {"content": "Fix", "type": "fix"})
         stats = await engineering_memory.get_namespace_stats("eng_ns")
         assert stats["entry_count"] == 2
         assert "error" in stats["type_distribution"]
@@ -333,7 +317,7 @@ class TestMemoryIntegration:
         """Test a complete workflow using all three memory layers."""
         # Session memory for current session data
         session_mem = SessionMemory(default_ttl=3600)
-        
+
         # Project memory for project context
         tmpdir = _memory_temp_dir()
         project_db = tmpdir / "project.db"
@@ -347,17 +331,18 @@ class TestMemoryIntegration:
         await session_mem.put("session_1", "current_task", "debugging")
 
         # Store project context
-        await project_mem.put("project_1", "config", {
-            "name": "TestProject",
-            "version": "1.0"
-        })
+        await project_mem.put("project_1", "config", {"name": "TestProject", "version": "1.0"})
 
         # Store engineering knowledge
-        await eng_mem.put("knowledge", "error_pattern_1", {
-            "content": "Timeout errors in database connections",
-            "type": "error_pattern",
-            "tags": ["database", "timeout"]
-        })
+        await eng_mem.put(
+            "knowledge",
+            "error_pattern_1",
+            {
+                "content": "Timeout errors in database connections",
+                "type": "error_pattern",
+                "tags": ["database", "timeout"],
+            },
+        )
 
         # Verify all layers
         session_data = await session_mem.get("session_1", "current_task")
@@ -373,10 +358,10 @@ class TestMemoryIntegration:
     async def test_namespace_isolation_across_layers(self):
         """Test that namespaces are properly isolated across layers."""
         session_mem = SessionMemory()
-        
+
         tmpdir = _memory_temp_dir()
         project_mem = ProjectMemory(str(tmpdir / "project.db"))
-        eng_mem = EngineeringMemory(str(tmpdir / "eng.db"))
+        EngineeringMemory(str(tmpdir / "eng.db"))
 
         # Store same key in different namespaces
         await session_mem.put("ns1", "key", "session_value_1")
@@ -396,15 +381,15 @@ class TestMemoryIntegration:
     async def test_error_handling(self):
         """Test error handling across memory layers."""
         session_mem = SessionMemory()
-        
+
         # Test invalid namespace
         with pytest.raises(ValueError):
             await session_mem.put("", "key", "value")
-        
+
         # Test invalid key
         with pytest.raises(ValueError):
             await session_mem.get("ns", "")
-        
+
         # Test search with invalid namespace
         with pytest.raises(ValueError):
             await session_mem.search("", "query")
@@ -413,18 +398,14 @@ class TestMemoryIntegration:
     async def test_concurrent_operations(self):
         """Test concurrent operations on memory layers."""
         session_mem = SessionMemory()
-        
+
         async def store_data(ns, key, value):
             await session_mem.put(ns, key, value)
-        
+
         # Run concurrent operations
-        tasks = [
-            store_data("ns1", f"key_{i}", f"value_{i}")
-            for i in range(10)
-        ]
+        tasks = [store_data("ns1", f"key_{i}", f"value_{i}") for i in range(10)]
         await asyncio.gather(*tasks)
-        
+
         # Verify all data was stored
         all_data = await session_mem.get_all("ns1")
         assert len(all_data) == 10
-

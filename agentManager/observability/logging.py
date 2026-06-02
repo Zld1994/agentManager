@@ -15,7 +15,6 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-
 # ── Correlation context variables ────────────────────────────────────────────
 
 _request_id_var: ContextVar[Optional[str]] = ContextVar("request_id", default=None)
@@ -85,6 +84,7 @@ def _correlated_factory(*args: Any, **kwargs: Any) -> logging.LogRecord:
 
 # ── JSON Formatter ───────────────────────────────────────────────────────────
 
+
 class _JSONEncoder(json.JSONEncoder):
     def default(self, o: Any) -> Any:
         if isinstance(o, datetime):
@@ -123,11 +123,30 @@ class JSONFormatter(logging.Formatter):
 
         # Extra fields (skip internal LogRecord attrs)
         _skip = {
-            "name", "msg", "args", "created", "relativeCreated",
-            "exc_info", "exc_text", "stack_info", "lineno", "funcName",
-            "filename", "module", "pathname", "thread", "threadName",
-            "process", "processName", "levelname", "levelno", "message",
-            "msecs", "taskName", "request_id", "workflow_id",
+            "name",
+            "msg",
+            "args",
+            "created",
+            "relativeCreated",
+            "exc_info",
+            "exc_text",
+            "stack_info",
+            "lineno",
+            "funcName",
+            "filename",
+            "module",
+            "pathname",
+            "thread",
+            "threadName",
+            "process",
+            "processName",
+            "levelname",
+            "levelno",
+            "message",
+            "msecs",
+            "taskName",
+            "request_id",
+            "workflow_id",
         }
         for key, val in record.__dict__.items():
             if key not in _skip and not key.startswith("_"):
@@ -137,6 +156,7 @@ class JSONFormatter(logging.Formatter):
 
 
 # ── StructuredLogger wrapper ────────────────────────────────────────────────
+
 
 class StructuredLogger:
     """Thin convenience wrapper around a stdlib logger."""
@@ -153,6 +173,7 @@ class StructuredLogger:
 
 
 # ── Setup entry point ────────────────────────────────────────────────────────
+
 
 def setup_logging(
     level: Optional[str] = None,
@@ -180,11 +201,7 @@ def setup_logging(
     if json_output:
         handler.setFormatter(JSONFormatter())
     else:
-        handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
-            )
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
 
     # Replace only our own previously-added handler to avoid duplicate output,
     # while preserving handlers from other libraries (Sentry, RotatingFileHandler, etc.)

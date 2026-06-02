@@ -307,9 +307,7 @@ class TestRecoveryEngine:
         mock_dependencies["state_machine"].transition.assert_called()
 
     @pytest.mark.asyncio
-    async def test_execute_recovery_traces_recovery_operation(
-        self, mock_dependencies, monkeypatch
-    ):
+    async def test_execute_recovery_traces_recovery_operation(self, mock_dependencies, monkeypatch):
         """Recovery execution should create an observability span."""
         spans = []
 
@@ -355,9 +353,7 @@ class TestRecoveryEngine:
         recorded = []
         monkeypatch.setattr(
             "agentManager.recovery.recovery_engine.audit_recovery_escalated",
-            lambda workflow_id, task_id, reason: recorded.append(
-                (workflow_id, task_id, reason)
-            ),
+            lambda workflow_id, task_id, reason: recorded.append((workflow_id, task_id, reason)),
         )
         engine = RecoveryEngine(**mock_dependencies)
         ctx = RecoveryContext(
@@ -382,9 +378,7 @@ class TestRecoveryEngine:
         mock_event = Mock(spec=Event)
         mock_event.event_id = "event_1"
         mock_event.event_type = EventType.TASK_STARTED
-        mock_dependencies["event_bus"].get_events = AsyncMock(
-            return_value=[mock_event]
-        )
+        mock_dependencies["event_bus"].get_events = AsyncMock(return_value=[mock_event])
 
         ctx = RecoveryContext(
             task_id="task_1",
@@ -554,9 +548,7 @@ class TestRecoveryEngine:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_retry_strategy_reruns_task_when_available(
-        self, mock_dependencies
-    ):
+    async def test_retry_strategy_reruns_task_when_available(self, mock_dependencies):
         """Test RETRY re-executes task when the task object is available."""
         engine = RecoveryEngine(**mock_dependencies)
 
@@ -577,15 +569,11 @@ class TestRecoveryEngine:
         result = await engine.execute_recovery(ctx)
 
         assert result is True
-        mock_dependencies["task_executor"].run_task.assert_awaited_once_with(
-            task
-        )
+        mock_dependencies["task_executor"].run_task.assert_awaited_once_with(task)
         assert ctx.retry_count == 1
 
     @pytest.mark.asyncio
-    async def test_retry_strategy_marks_retry_ready_without_task(
-        self, mock_dependencies
-    ):
+    async def test_retry_strategy_marks_retry_ready_without_task(self, mock_dependencies):
         """Test RETRY marks retry-ready context when task object is unavailable."""
         engine = RecoveryEngine(**mock_dependencies)
 
@@ -594,9 +582,7 @@ class TestRecoveryEngine:
             workflow_id="workflow_1",
             metadata={},
         )
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
         mock_dependencies["task_executor"].get_task = Mock(return_value=None)
 
         ctx = RecoveryContext(
@@ -617,9 +603,7 @@ class TestRecoveryEngine:
         )
 
     @pytest.mark.asyncio
-    async def test_event_replay_rehydrates_execution_context(
-        self, mock_dependencies
-    ):
+    async def test_event_replay_rehydrates_execution_context(self, mock_dependencies):
         """Test EVENT_REPLAY applies replayed events into task execution context."""
         engine = RecoveryEngine(**mock_dependencies)
 
@@ -628,9 +612,7 @@ class TestRecoveryEngine:
             workflow_id="workflow_1",
             metadata={},
         )
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
         start_event = Event(
             event_type=EventType.TASK_STARTED,
             workflow_id="workflow_1",
@@ -665,9 +647,7 @@ class TestRecoveryEngine:
         assert exec_ctx.metadata["last_replayed_event_id"] == "ev-2"
 
     @pytest.mark.asyncio
-    async def test_snapshot_restore_validates_checkpoint_id_when_present(
-        self, mock_dependencies
-    ):
+    async def test_snapshot_restore_validates_checkpoint_id_when_present(self, mock_dependencies):
         """Test SNAPSHOT_RESTORE fails when checkpoint_id does not match."""
         engine = RecoveryEngine(**mock_dependencies)
 
@@ -695,9 +675,7 @@ class TestRecoveryEngine:
         assert "task_1" not in mock_dependencies["task_executor"].execution_contexts
 
     @pytest.mark.asyncio
-    async def test_hitl_stores_manual_intervention_context(
-        self, mock_dependencies
-    ):
+    async def test_hitl_stores_manual_intervention_context(self, mock_dependencies):
         """Test HITL stores manual intervention details on execution context."""
         engine = RecoveryEngine(**mock_dependencies)
 
@@ -706,9 +684,7 @@ class TestRecoveryEngine:
             workflow_id="workflow_1",
             metadata={},
         )
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
 
         ctx = RecoveryContext(
             task_id="task_1",
@@ -728,9 +704,7 @@ class TestRecoveryEngine:
         assert interventions[0]["error_msg"] == "Syntax error"
 
     @pytest.mark.asyncio
-    async def test_escalate_stores_manual_intervention_context(
-        self, mock_dependencies
-    ):
+    async def test_escalate_stores_manual_intervention_context(self, mock_dependencies):
         """Test ESCALATE stores manual intervention details on execution context."""
         engine = RecoveryEngine(**mock_dependencies)
 
@@ -739,9 +713,7 @@ class TestRecoveryEngine:
             workflow_id="workflow_1",
             metadata={},
         )
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
 
         ctx = RecoveryContext(
             task_id="task_1",
@@ -761,9 +733,7 @@ class TestRecoveryEngine:
         assert interventions[0]["error_msg"] == "Unknown error"
 
     @pytest.mark.asyncio
-    async def test_defect_repair_succeeds_with_injected_pipeline(
-        self, mock_dependencies
-    ):
+    async def test_defect_repair_succeeds_with_injected_pipeline(self, mock_dependencies):
         """Test DEFECT_REPAIR succeeds when a configured pipeline repairs code."""
         exec_ctx = ExecutionContext(
             task_id="task_1",
@@ -785,13 +755,9 @@ class TestRecoveryEngine:
                 )
             ]
         )
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
         mock_dependencies["task_executor"].get_task = Mock(return_value=task)
-        mock_dependencies["state_machine"].get_state = Mock(
-            return_value=TaskState.COMPLETED
-        )
+        mock_dependencies["state_machine"].get_state = Mock(return_value=TaskState.COMPLETED)
         engine = RecoveryEngine(
             **mock_dependencies,
             defect_repair_pipeline=pipeline,
@@ -821,12 +787,8 @@ class TestRecoveryEngine:
             workflow_id="workflow_1",
             metadata={},
         )
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
-        mock_dependencies["state_machine"].get_state = Mock(
-            return_value=TaskState.FAILED
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
+        mock_dependencies["state_machine"].get_state = Mock(return_value=TaskState.FAILED)
         engine = RecoveryEngine(**mock_dependencies)
 
         ctx = RecoveryContext(
@@ -847,9 +809,7 @@ class TestRecoveryEngine:
         )
 
     @pytest.mark.asyncio
-    async def test_defect_repair_missing_code_blocks_for_human_review(
-        self, mock_dependencies
-    ):
+    async def test_defect_repair_missing_code_blocks_for_human_review(self, mock_dependencies):
         """Test DEFECT_REPAIR skips tasks without repairable code metadata."""
         exec_ctx = ExecutionContext(
             task_id="task_1",
@@ -860,13 +820,9 @@ class TestRecoveryEngine:
         task.node_id = "task_1"
         task.metadata = {"workflow_id": "workflow_1"}
         pipeline = Mock()
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
         mock_dependencies["task_executor"].get_task = Mock(return_value=task)
-        mock_dependencies["state_machine"].get_state = Mock(
-            return_value=TaskState.FAILED
-        )
+        mock_dependencies["state_machine"].get_state = Mock(return_value=TaskState.FAILED)
         engine = RecoveryEngine(
             **mock_dependencies,
             defect_repair_pipeline=pipeline,
@@ -887,9 +843,7 @@ class TestRecoveryEngine:
         assert "No repairable code" in exec_ctx.metadata["defect_repair"]["failure_reason"]
 
     @pytest.mark.asyncio
-    async def test_defect_repair_escalation_records_manual_intervention(
-        self, mock_dependencies
-    ):
+    async def test_defect_repair_escalation_records_manual_intervention(self, mock_dependencies):
         """Test escalated defect repair stores manual-intervention metadata."""
         exec_ctx = ExecutionContext(
             task_id="task_1",
@@ -910,13 +864,9 @@ class TestRecoveryEngine:
                 )
             ]
         )
-        mock_dependencies["task_executor"].get_execution_context = Mock(
-            return_value=exec_ctx
-        )
+        mock_dependencies["task_executor"].get_execution_context = Mock(return_value=exec_ctx)
         mock_dependencies["task_executor"].get_task = Mock(return_value=task)
-        mock_dependencies["state_machine"].get_state = Mock(
-            return_value=TaskState.BLOCKED_HITL
-        )
+        mock_dependencies["state_machine"].get_state = Mock(return_value=TaskState.BLOCKED_HITL)
         engine = RecoveryEngine(
             **mock_dependencies,
             defect_repair_pipeline=pipeline,

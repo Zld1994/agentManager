@@ -1,8 +1,6 @@
 """Unit tests for Memory System core architecture."""
 
-import json
 import tempfile
-import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -54,10 +52,7 @@ class TestMemoryEntry:
 
     def test_entry_creation_with_defaults(self):
         """Test creating entry with default values."""
-        entry = MemoryEntry(
-            content="Test content",
-            layer=MemoryLayer.SHORT_TERM
-        )
+        entry = MemoryEntry(content="Test content", layer=MemoryLayer.SHORT_TERM)
         assert entry.content == "Test content"
         assert entry.layer == MemoryLayer.SHORT_TERM
         assert entry.entry_id is not None
@@ -67,25 +62,15 @@ class TestMemoryEntry:
 
     def test_entry_ttl_auto_set(self):
         """Test that TTL is automatically set based on layer."""
-        entry = MemoryEntry(
-            content="Test",
-            layer=MemoryLayer.SHORT_TERM
-        )
+        entry = MemoryEntry(content="Test", layer=MemoryLayer.SHORT_TERM)
         assert entry.ttl_seconds == 3600
 
-        entry = MemoryEntry(
-            content="Test",
-            layer=MemoryLayer.LONG_TERM
-        )
+        entry = MemoryEntry(content="Test", layer=MemoryLayer.LONG_TERM)
         assert entry.ttl_seconds is None
 
     def test_entry_custom_ttl(self):
         """Test overriding TTL."""
-        entry = MemoryEntry(
-            content="Test",
-            layer=MemoryLayer.SHORT_TERM,
-            ttl_seconds=7200
-        )
+        entry = MemoryEntry(content="Test", layer=MemoryLayer.SHORT_TERM, ttl_seconds=7200)
         assert entry.ttl_seconds == 7200
 
     def test_entry_with_tags_and_metadata(self):
@@ -94,7 +79,7 @@ class TestMemoryEntry:
             content="Test",
             layer=MemoryLayer.MEDIUM_TERM,
             tags=["important", "urgent"],
-            metadata={"priority": "high", "source": "api"}
+            metadata={"priority": "high", "source": "api"},
         )
         assert entry.tags == ["important", "urgent"]
         assert entry.metadata["priority"] == "high"
@@ -102,26 +87,19 @@ class TestMemoryEntry:
     def test_entry_is_expired_short_term(self):
         """Test expiration check for short-term memory."""
         entry = MemoryEntry(
-            content="Test",
-            layer=MemoryLayer.SHORT_TERM,
-            timestamp=utc_now() - timedelta(hours=2)
+            content="Test", layer=MemoryLayer.SHORT_TERM, timestamp=utc_now() - timedelta(hours=2)
         )
         assert entry.is_expired()
 
     def test_entry_not_expired(self):
         """Test non-expired entry."""
-        entry = MemoryEntry(
-            content="Test",
-            layer=MemoryLayer.SHORT_TERM
-        )
+        entry = MemoryEntry(content="Test", layer=MemoryLayer.SHORT_TERM)
         assert not entry.is_expired()
 
     def test_entry_long_term_never_expires(self):
         """Test that long-term entries never expire."""
         entry = MemoryEntry(
-            content="Test",
-            layer=MemoryLayer.LONG_TERM,
-            timestamp=utc_now() - timedelta(days=365)
+            content="Test", layer=MemoryLayer.LONG_TERM, timestamp=utc_now() - timedelta(days=365)
         )
         assert not entry.is_expired()
 
@@ -143,11 +121,7 @@ class TestMemorySystem:
 
     def test_store_and_retrieve(self, memory_system):
         """Test storing and retrieving an entry."""
-        entry = MemoryEntry(
-            content="Test content",
-            layer=MemoryLayer.SHORT_TERM,
-            tags=["test"]
-        )
+        entry = MemoryEntry(content="Test content", layer=MemoryLayer.SHORT_TERM, tags=["test"])
         entry_id = memory_system.store(entry)
         assert entry_id == entry.entry_id
 
@@ -167,7 +141,7 @@ class TestMemorySystem:
         entry = MemoryEntry(
             content="Expired content",
             layer=MemoryLayer.SHORT_TERM,
-            timestamp=utc_now() - timedelta(hours=2)
+            timestamp=utc_now() - timedelta(hours=2),
         )
         memory_system.store(entry)
 
@@ -176,14 +150,8 @@ class TestMemorySystem:
 
     def test_search_by_content(self, memory_system):
         """Test searching entries by content."""
-        entry1 = MemoryEntry(
-            content="Python programming",
-            layer=MemoryLayer.SHORT_TERM
-        )
-        entry2 = MemoryEntry(
-            content="JavaScript development",
-            layer=MemoryLayer.SHORT_TERM
-        )
+        entry1 = MemoryEntry(content="Python programming", layer=MemoryLayer.SHORT_TERM)
+        entry2 = MemoryEntry(content="JavaScript development", layer=MemoryLayer.SHORT_TERM)
         memory_system.store(entry1)
         memory_system.store(entry2)
 
@@ -193,14 +161,8 @@ class TestMemorySystem:
 
     def test_search_by_layer(self, memory_system):
         """Test searching entries filtered by layer."""
-        entry1 = MemoryEntry(
-            content="Short term data",
-            layer=MemoryLayer.SHORT_TERM
-        )
-        entry2 = MemoryEntry(
-            content="Long term data",
-            layer=MemoryLayer.LONG_TERM
-        )
+        entry1 = MemoryEntry(content="Short term data", layer=MemoryLayer.SHORT_TERM)
+        entry2 = MemoryEntry(content="Long term data", layer=MemoryLayer.LONG_TERM)
         memory_system.store(entry1)
         memory_system.store(entry2)
 
@@ -210,10 +172,7 @@ class TestMemorySystem:
 
     def test_search_case_insensitive(self, memory_system):
         """Test that search is case-insensitive."""
-        entry = MemoryEntry(
-            content="Important Data",
-            layer=MemoryLayer.SHORT_TERM
-        )
+        entry = MemoryEntry(content="Important Data", layer=MemoryLayer.SHORT_TERM)
         memory_system.store(entry)
 
         results = memory_system.search("important")
@@ -224,12 +183,9 @@ class TestMemorySystem:
         entry1 = MemoryEntry(
             content="Expired",
             layer=MemoryLayer.SHORT_TERM,
-            timestamp=utc_now() - timedelta(hours=2)
+            timestamp=utc_now() - timedelta(hours=2),
         )
-        entry2 = MemoryEntry(
-            content="Valid",
-            layer=MemoryLayer.LONG_TERM
-        )
+        entry2 = MemoryEntry(content="Valid", layer=MemoryLayer.LONG_TERM)
         memory_system.store(entry1)
         memory_system.store(entry2)
 
@@ -244,7 +200,7 @@ class TestMemorySystem:
         entry = MemoryEntry(
             content="Permanent",
             layer=MemoryLayer.LONG_TERM,
-            timestamp=utc_now() - timedelta(days=365)
+            timestamp=utc_now() - timedelta(days=365),
         )
         memory_system.store(entry)
 
@@ -265,14 +221,8 @@ class TestMemorySystem:
 
     def test_get_layer_stats_with_entries(self, memory_system):
         """Test layer stats with entries."""
-        entry1 = MemoryEntry(
-            content="Content 1",
-            layer=MemoryLayer.SHORT_TERM
-        )
-        entry2 = MemoryEntry(
-            content="Content 2",
-            layer=MemoryLayer.SHORT_TERM
-        )
+        entry1 = MemoryEntry(content="Content 1", layer=MemoryLayer.SHORT_TERM)
+        entry2 = MemoryEntry(content="Content 2", layer=MemoryLayer.SHORT_TERM)
         memory_system.store(entry1)
         memory_system.store(entry2)
 
@@ -282,14 +232,8 @@ class TestMemorySystem:
 
     def test_multiple_layers_isolation(self, memory_system):
         """Test that entries in different layers are isolated."""
-        entry1 = MemoryEntry(
-            content="Short term",
-            layer=MemoryLayer.SHORT_TERM
-        )
-        entry2 = MemoryEntry(
-            content="Long term",
-            layer=MemoryLayer.LONG_TERM
-        )
+        entry1 = MemoryEntry(content="Short term", layer=MemoryLayer.SHORT_TERM)
+        entry2 = MemoryEntry(content="Long term", layer=MemoryLayer.LONG_TERM)
         memory_system.store(entry1)
         memory_system.store(entry2)
 
@@ -301,17 +245,11 @@ class TestMemorySystem:
 
     def test_store_update_existing(self, memory_system):
         """Test updating an existing entry."""
-        entry = MemoryEntry(
-            content="Original",
-            layer=MemoryLayer.SHORT_TERM,
-            entry_id="test-id"
-        )
+        entry = MemoryEntry(content="Original", layer=MemoryLayer.SHORT_TERM, entry_id="test-id")
         memory_system.store(entry)
 
         updated_entry = MemoryEntry(
-            content="Updated",
-            layer=MemoryLayer.SHORT_TERM,
-            entry_id="test-id"
+            content="Updated", layer=MemoryLayer.SHORT_TERM, entry_id="test-id"
         )
         memory_system.store(updated_entry)
 
@@ -331,6 +269,7 @@ class TestMemorySystemVectorBackend:
 
     def test_accepts_vector_backend(self, temp_db):
         from agentManager.memory.vector_backend import InMemoryVectorSearchBackend
+
         vector = InMemoryVectorSearchBackend()
         mem = MemorySystem(db_path=temp_db, vector_backend=vector)
         assert mem.vector_backend is vector
@@ -343,6 +282,7 @@ class TestMemorySystemVectorBackend:
 
     def test_sync_search_falls_back_on_vector_error(self, temp_db):
         from unittest.mock import AsyncMock, MagicMock
+
         vector = MagicMock()
         vector.query = AsyncMock(side_effect=RuntimeError("vector error"))
         mem = MemorySystem(db_path=temp_db, vector_backend=vector)
@@ -364,6 +304,7 @@ class TestMemorySystemVectorBackend:
     def test_search_falls_back_to_substring_inside_running_loop(self, temp_db):
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
+
         vector = MagicMock()
         vector.query = AsyncMock(return_value=[])
         mem = MemorySystem(db_path=temp_db, vector_backend=vector)
@@ -382,13 +323,14 @@ class TestMemorySystemVectorBackend:
     async def test_asearch_uses_vector_backend(self, temp_db):
         from unittest.mock import AsyncMock, MagicMock
         from agentManager.memory.vector_backend import VectorSearchResult
+
         vector = MagicMock()
         vector.upsert = AsyncMock(return_value=None)
-        vector.query = AsyncMock(return_value=[
-            VectorSearchResult(key="entry-1", score=0.9)
-        ])
+        vector.query = AsyncMock(return_value=[VectorSearchResult(key="entry-1", score=0.9)])
         mem = MemorySystem(db_path=temp_db, vector_backend=vector)
-        entry = MemoryEntry(content="Python programming", layer=MemoryLayer.SHORT_TERM, entry_id="entry-1")
+        entry = MemoryEntry(
+            content="Python programming", layer=MemoryLayer.SHORT_TERM, entry_id="entry-1"
+        )
         mem.store(entry)
 
         results = await mem.asearch("Python")
@@ -400,6 +342,7 @@ class TestMemorySystemVectorBackend:
     @pytest.mark.asyncio
     async def test_astore_awaits_vector_upsert(self, temp_db):
         from unittest.mock import AsyncMock, MagicMock
+
         vector = MagicMock()
         vector.upsert = AsyncMock()
         mem = MemorySystem(db_path=temp_db, vector_backend=vector)

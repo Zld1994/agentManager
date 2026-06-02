@@ -13,7 +13,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from agentManager.sandbox.worker_sandbox import WorkerSandbox, SandboxConfig
 
-
 TEST_WORKSPACE_ROOT = Path(".test-artifacts") / "worker-sandbox-unit"
 
 
@@ -78,9 +77,7 @@ class TestSandboxConfig:
 
         workspace = config.task_workspace_path
 
-        assert workspace == (
-            TEST_WORKSPACE_ROOT / "worker-1" / "task-42"
-        ).resolve()
+        assert workspace == (TEST_WORKSPACE_ROOT / "worker-1" / "task-42").resolve()
 
     def test_config_rejects_task_workspace_escape(self):
         """Test task identifiers cannot escape the workspace root."""

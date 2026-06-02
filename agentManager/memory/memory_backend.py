@@ -50,12 +50,7 @@ class MemoryBackend(ABC):
         pass
 
     @abstractmethod
-    async def search(
-        self,
-        namespace: str,
-        query: str,
-        limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    async def search(self, namespace: str, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search for values in a namespace.
 
         Args:

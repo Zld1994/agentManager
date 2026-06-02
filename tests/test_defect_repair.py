@@ -9,16 +9,13 @@ Tests cover:
 - Statistics and reporting
 """
 
-import asyncio
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from agentManager.defect_repair.classifier import DefectClassifier, SeverityLevel
 from agentManager.defect_repair.repair_pipeline import (
     DefectRepairPipeline,
-    RepairExperience,
     TaskRun,
 )
 from agentManager.defect_repair.repair_strategies import (
@@ -26,7 +23,6 @@ from agentManager.defect_repair.repair_strategies import (
     L2RepairStrategy,
     L3RepairStrategy,
     L4RepairStrategy,
-    RepairResult,
     RepairStatus,
     RepairStrategyFactory,
 )

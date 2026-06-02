@@ -17,6 +17,7 @@ def utc_now() -> datetime:
 
 class FailureType(str, Enum):
     """Types of failures that can occur during task execution."""
+
     TIMEOUT = "timeout"
     NETWORK = "network"
     SYNTAX = "syntax"
@@ -26,6 +27,7 @@ class FailureType(str, Enum):
 
 class RecoveryStrategy(str, Enum):
     """Recovery strategies available for task recovery."""
+
     RETRY = "retry"
     EVENT_REPLAY = "event_replay"
     SNAPSHOT_RESTORE = "snapshot_restore"
@@ -41,6 +43,7 @@ class RecoveryContext:
     Encapsulates all information needed to recover a failed task,
     including failure details, checkpoint information, and recovery strategy.
     """
+
     task_id: str
     workflow_id: str
     failure_type: FailureType
@@ -74,11 +77,7 @@ class RecoveryContext:
             "checkpoint_id": self.checkpoint_id,
             "event_id": self.event_id,
             "retry_count": self.retry_count,
-            "recovery_strategy": (
-                self.recovery_strategy.value
-                if self.recovery_strategy
-                else None
-            ),
+            "recovery_strategy": (self.recovery_strategy.value if self.recovery_strategy else None),
             "timestamp": self.timestamp.isoformat(),
         }
 

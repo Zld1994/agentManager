@@ -52,8 +52,7 @@ def _create_state_machine(settings: dict[str, str]) -> StateMachine:
         return StateMachine(repository=repo)
     except Exception as exc:
         logger.warning(
-            "Failed to initialise PostgreSQL state repository, "
-            "falling back to in-memory: %s",
+            "Failed to initialise PostgreSQL state repository, " "falling back to in-memory: %s",
             exc,
         )
         return StateMachine()
@@ -157,8 +156,7 @@ def _create_memory_system(settings: dict[str, str]) -> Any:
             return mem
         except Exception as exc:
             logger.warning(
-                "Failed to initialise Qdrant vector backend, "
-                "falling back to SQLite: %s",
+                "Failed to initialise Qdrant vector backend, " "falling back to SQLite: %s",
                 exc,
             )
 
@@ -185,8 +183,7 @@ def _create_engineering_memory(settings: dict[str, str]) -> Optional[Engineering
         return EngineeringMemory.from_settings()
     except Exception as exc:
         logger.warning(
-            "Failed to initialise EngineeringMemory, "
-            "memory write-back will be disabled: %s",
+            "Failed to initialise EngineeringMemory, " "memory write-back will be disabled: %s",
             exc,
         )
         return None

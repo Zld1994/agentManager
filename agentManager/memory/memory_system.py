@@ -25,6 +25,7 @@ class MemoryLayer(Enum):
         MEDIUM_TERM: Task history (TTL: 7 days)
         LONG_TERM: Knowledge base (permanent)
     """
+
     SHORT_TERM = (3600, "当前会话")  # 1 hour
     MEDIUM_TERM = (604800, "任务历史")  # 7 days
     LONG_TERM = (None, "知识库")  # Permanent
@@ -43,6 +44,7 @@ class MemoryEntry:
         tags: List of tags for categorization
         metadata: Additional metadata dictionary
     """
+
     content: str
     layer: MemoryLayer
     tags: List[str] = field(default_factory=list)
@@ -173,19 +175,22 @@ class MemorySystem:
             The entry_id of the stored entry
         """
         with self._lock:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT OR REPLACE INTO memory_entries
                 (entry_id, content, layer, timestamp, ttl_seconds, tags, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                entry.entry_id,
-                entry.content,
-                entry.layer.name,
-                entry.timestamp.timestamp(),
-                entry.ttl_seconds,
-                json.dumps(entry.tags),
-                json.dumps(entry.metadata)
-            ))
+            """,
+                (
+                    entry.entry_id,
+                    entry.content,
+                    entry.layer.name,
+                    entry.timestamp.timestamp(),
+                    entry.ttl_seconds,
+                    json.dumps(entry.tags),
+                    json.dumps(entry.metadata),
+                ),
+            )
             self._conn.commit()
 
         self._index_to_vector_backend(entry)
@@ -205,26 +210,27 @@ class MemorySystem:
             The entry_id of the stored entry
         """
         with self._lock:
-            self._conn.execute("""
+            self._conn.execute(
+                """
                 INSERT OR REPLACE INTO memory_entries
                 (entry_id, content, layer, timestamp, ttl_seconds, tags, metadata)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            """, (
-                entry.entry_id,
-                entry.content,
-                entry.layer.name,
-                entry.timestamp.timestamp(),
-                entry.ttl_seconds,
-                json.dumps(entry.tags),
-                json.dumps(entry.metadata)
-            ))
+            """,
+                (
+                    entry.entry_id,
+                    entry.content,
+                    entry.layer.name,
+                    entry.timestamp.timestamp(),
+                    entry.ttl_seconds,
+                    json.dumps(entry.tags),
+                    json.dumps(entry.metadata),
+                ),
+            )
             self._conn.commit()
 
         if self.vector_backend is not None:
             try:
-                await self.vector_backend.upsert(
-                    entry.layer.name, entry.entry_id, entry.content
-                )
+                await self.vector_backend.upsert(entry.layer.name, entry.entry_id, entry.content)
             except Exception:
                 pass
 
@@ -250,16 +256,12 @@ class MemorySystem:
 
         if loop is not None and loop.is_running():
             asyncio.ensure_future(
-                self.vector_backend.upsert(
-                    entry.layer.name, entry.entry_id, entry.content
-                )
+                self.vector_backend.upsert(entry.layer.name, entry.entry_id, entry.content)
             )
         else:
             try:
                 asyncio.run(
-                    self.vector_backend.upsert(
-                        entry.layer.name, entry.entry_id, entry.content
-                    )
+                    self.vector_backend.upsert(entry.layer.name, entry.entry_id, entry.content)
                 )
             except Exception:
                 pass
@@ -274,10 +276,13 @@ class MemorySystem:
             MemoryEntry if found and not expired, None otherwise
         """
         with self._lock:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT content, layer, timestamp, ttl_seconds, tags, metadata
                 FROM memory_entries WHERE entry_id = ?
-            """, (entry_id,))
+            """,
+                (entry_id,),
+            )
             row = cursor.fetchone()
 
         if not row:
@@ -291,7 +296,7 @@ class MemorySystem:
             timestamp=datetime.fromtimestamp(timestamp, tz=timezone.utc),
             ttl_seconds=ttl_seconds,
             tags=json.loads(tags),
-            metadata=json.loads(metadata)
+            metadata=json.loads(metadata),
         )
 
         if entry.is_expired():
@@ -318,6 +323,7 @@ class MemorySystem:
         """
         if self.vector_backend is not None:
             import asyncio
+
             try:
                 asyncio.get_running_loop()
             except RuntimeError:
@@ -387,16 +393,22 @@ class MemorySystem:
         """Search using SQLite substring matching (original behavior)."""
         with self._lock:
             if layer:
-                cursor = self._conn.execute("""
+                cursor = self._conn.execute(
+                    """
                     SELECT entry_id, content, layer, timestamp, ttl_seconds, tags, metadata
                     FROM memory_entries
                     WHERE layer = ? AND content LIKE ?
-                """, (layer.name, f"%{query}%"))
+                """,
+                    (layer.name, f"%{query}%"),
+                )
             else:
-                cursor = self._conn.execute("""
+                cursor = self._conn.execute(
+                    """
                     SELECT entry_id, content, layer, timestamp, ttl_seconds, tags, metadata
                     FROM memory_entries WHERE content LIKE ?
-                """, (f"%{query}%",))
+                """,
+                    (f"%{query}%",),
+                )
 
             rows = cursor.fetchall()
 
@@ -410,7 +422,7 @@ class MemorySystem:
                 timestamp=datetime.fromtimestamp(timestamp, tz=timezone.utc),
                 ttl_seconds=ttl_seconds,
                 tags=json.loads(tags),
-                metadata=json.loads(metadata)
+                metadata=json.loads(metadata),
             )
             if not entry.is_expired():
                 entries.append(entry)
@@ -456,10 +468,13 @@ class MemorySystem:
                 - ttl_seconds: TTL configuration for layer
         """
         with self._lock:
-            cursor = self._conn.execute("""
+            cursor = self._conn.execute(
+                """
                 SELECT COUNT(*), SUM(LENGTH(content))
                 FROM memory_entries WHERE layer = ?
-            """, (layer.name,))
+            """,
+                (layer.name,),
+            )
             count, total_size = cursor.fetchone()
 
         return {
@@ -467,7 +482,7 @@ class MemorySystem:
             "description": layer.value[1],
             "entry_count": count or 0,
             "total_size_bytes": total_size or 0,
-            "ttl_seconds": layer.value[0]
+            "ttl_seconds": layer.value[0],
         }
 
     def _delete_entry(self, entry_id: str) -> None:

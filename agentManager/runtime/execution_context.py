@@ -17,6 +17,7 @@ def utc_now() -> datetime:
 
 class ExecutionStatus(str, Enum):
     """Execution status enumeration."""
+
     PENDING = "pending"
     IMPLEMENTING = "implementing"
     VERIFYING = "verifying"
@@ -39,6 +40,7 @@ class ExecutionContext:
         retry_count: Number of retry attempts
         metadata: Additional execution metadata
     """
+
     task_id: str
     workflow_id: str
     status: ExecutionStatus = ExecutionStatus.PENDING
