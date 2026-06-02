@@ -1,4 +1,4 @@
-# hermes Guide for agentManager
+# Codex Guide for agentManager
 
 ## Project Overview
 
@@ -18,6 +18,8 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 - `agentManager/engine/event_bus/`: async event bus abstractions and in-memory/Redis implementations.
 - `agentManager/memory/`: profile/session, project, engineering memory, and vector-search backend
   components.
+- `agentManager/observability/`: structured logging, request correlation, audit event helpers,
+  and optional tracing hooks.
 - `agentManager/storage/`: durable repository and object-store interfaces for PostgreSQL state
   persistence and S3-compatible checkpoint storage.
 - `agentManager/recovery/`: recovery context, error classification, and recovery engine.
@@ -154,6 +156,22 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
 - Durable backend client libraries are base dependencies (`psycopg[binary]`, `boto3`,
   `qdrant-client`), but durable services remain opt-in through environment settings; unit tests
   should mock PostgreSQL, object storage, Redis, and Qdrant unless explicitly integration-scoped.
+- Observability defaults are local-safe: text logs, `X-Request-ID` request correlation, audit
+  helpers under `agentManager.audit`, and tracing disabled unless `OTEL_TRACING_ENABLED=true`.
+- Durable audit sinks are injected through RuntimeFactory startup wiring via
+  `configure_runtime_audit_sinks(...)`, which delegates to
+  `configure_audit_sinks(..., repository=..., object_store=...)`; avoid direct SQL or boto3 calls
+  from `agentManager/observability/audit.py`.
+- `audit_record` includes a `content_hash` column for a SHA-256 integrity hash of the redacted
+  audit payload. This is not an HMAC signature and should not be treated as tamper-proof against a
+  malicious writer.
+- `/health` checks only dependencies configured through environment variables. Default mode returns
+  HTTP 200 with `status="degraded"` on dependency failure; `?strict=true` returns HTTP 503.
+- Local Docker Compose verification is still environment-dependent. Windows PowerShell may not have
+  `docker`, and WSL may have Docker CLI without the Compose v2 plugin; keep Docker verification
+  reports explicit about local-only blockers.
+- The `sandbox-integration` CI job should skip only when Docker is unavailable or the sandbox image
+  cannot be pulled; a successful `docker pull python:3.11-slim` should allow the integration tests to run.
 - `agentManager.egg-info/`, `.coverage`, `.pytest_cache/`, `__pycache__/`, and test output folders
   may be generated locally. Avoid editing generated metadata by hand unless packaging behavior is
   the target of the task.

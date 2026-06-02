@@ -25,6 +25,16 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _mask_url(url: str) -> str:
+    if "://" not in url:
+        return url
+    scheme, rest = url.split("://", 1)
+    if "@" in rest:
+        credentials, host_part = rest.rsplit("@", 1)
+        return f"{scheme}://***@{host_part}"
+    return url
+
+
 class RedisStreamEventBus(BaseEventBus):
     """Redis Streams based event bus with persistence and consumer groups."""
 
@@ -60,7 +70,7 @@ class RedisStreamEventBus(BaseEventBus):
         try:
             self.redis_client = redis.from_url(self.redis_url, decode_responses=True)
             await self.redis_client.ping()
-            logger.info(f"Connected to Redis at {self.redis_url}")
+            logger.info(f"Connected to Redis at {_mask_url(self.redis_url)}")
 
             # Create consumer group if it doesn't exist
             try:

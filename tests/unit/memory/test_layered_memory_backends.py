@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import tempfile
 import uuid
-from unittest.mock import patch
 from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 
 from agentManager.memory import EngineeringMemory, ProfileMemory, SessionMemory
 from agentManager.memory.vector_backend import (
@@ -161,3 +163,49 @@ def test_engineering_memory_from_settings_uses_vector_backend_env():
             db_path.unlink(missing_ok=True)
         except PermissionError:
             pass
+
+
+class TestSQLiteTableNameValidation:
+    def test_valid_table_name_accepted(self):
+        db_path = _workspace_temp_db("valid-table")
+        try:
+            backend = SQLiteVectorSearchBackend(db_path=str(db_path), table_name="valid_table")
+            assert backend.table_name == "valid_table"
+        finally:
+            try:
+                db_path.unlink(missing_ok=True)
+            except PermissionError:
+                pass
+
+    def test_invalid_table_name_rejected(self):
+        db_path = _workspace_temp_db("invalid-table")
+        try:
+            with pytest.raises(ValueError, match="Invalid table name"):
+                SQLiteVectorSearchBackend(db_path=str(db_path), table_name="evil; DROP TABLE--")
+        finally:
+            try:
+                db_path.unlink(missing_ok=True)
+            except PermissionError:
+                pass
+
+    def test_table_name_with_spaces_rejected(self):
+        db_path = _workspace_temp_db("spaces-table")
+        try:
+            with pytest.raises(ValueError, match="Invalid table name"):
+                SQLiteVectorSearchBackend(db_path=str(db_path), table_name="bad name")
+        finally:
+            try:
+                db_path.unlink(missing_ok=True)
+            except PermissionError:
+                pass
+
+    def test_table_name_starting_with_digit_rejected(self):
+        db_path = _workspace_temp_db("digit-table")
+        try:
+            with pytest.raises(ValueError, match="Invalid table name"):
+                SQLiteVectorSearchBackend(db_path=str(db_path), table_name="1bad")
+        finally:
+            try:
+                db_path.unlink(missing_ok=True)
+            except PermissionError:
+                pass

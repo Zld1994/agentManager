@@ -12,6 +12,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 
+_SAFE_TABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def _tokenize(text: str) -> Set[str]:
     return set(re.findall(r"\w+", text.lower()))
 
@@ -112,6 +115,8 @@ class SQLiteVectorSearchBackend(VectorSearchBackend):
     """SQLite-backed vector index used as default persistent fallback."""
 
     def __init__(self, db_path: str, table_name: str = "memory_vectors") -> None:
+        if not _SAFE_TABLE_NAME.match(table_name):
+            raise ValueError(f"Invalid table name: {table_name!r}")
         self.db_path = Path(db_path)
         self.table_name = table_name
         self._lock = asyncio.Lock()

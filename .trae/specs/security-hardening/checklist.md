@@ -1,0 +1,19 @@
+- [x] API 端点不再泄露内部异常详情，所有未预期异常返回 "Internal server error"
+- [x] 所有 HTTP 响应包含 X-Content-Type-Options: nosniff 头
+- [x] 所有 HTTP 响应包含 X-Frame-Options: DENY 头
+- [x] 所有 HTTP 响应包含 Referrer-Policy: strict-origin-when-cross-origin 头
+- [x] DOCS_ENABLED=false 时 /docs、/redoc、/openapi.json 返回 404
+- [x] DOCS_ENABLED=true 时文档端点正常可用
+- [x] API_AUTH_ENABLED=true 时未携带 Token 的请求返回 401
+- [x] API_AUTH_ENABLED=true 时携带正确 Bearer Token 的请求正常处理
+- [x] API_AUTH_ENABLED=false 时所有端点无需认证（向后兼容）
+- [x] /health 端点始终不需要认证
+- [x] /metrics 端点在认证启用时同样受保护
+- [x] SQLiteVectorSearchBackend 拒绝包含特殊字符的 table_name
+- [x] Redis 连接日志不包含密码明文
+- [x] 请求体超过 MAX_REQUEST_BODY_SIZE 时返回 413
+- [x] ALLOWED_HOSTS 设置后不匹配的 Host 请求被拒绝
+- [x] docker-compose.yml 中不再使用 minioadmin 等弱默认凭据
+- [x] .env.prod.example 包含所有新增安全配置项
+- [x] 现有测试全部通过（pytest tests/unit/ -v）
+- [x] 新增安全功能的单元测试通过

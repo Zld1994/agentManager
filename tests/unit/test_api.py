@@ -432,3 +432,273 @@ class TestTaskCompletion:
         """Test failing nonexistent task."""
         response = client.post("/tasks/task_999/fail")
         assert response.status_code == 404
+
+
+class TestSecurityHeaders:
+
+    def test_security_headers_present(self, client):
+        response = client.get("/health")
+        assert response.status_code == 200
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+    def test_security_headers_on_404(self, client):
+        response = client.get("/nonexistent")
+        assert response.status_code == 404
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+    def test_security_headers_on_post(self, client):
+        response = client.post(
+            "/tasks",
+            json={"node_id": "t1", "task_type": "type1", "dependencies": []},
+        )
+        assert response.status_code == 201
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+
+
+class TestAPIAuthentication:
+
+    def test_auth_disabled_by_default(self, client):
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+        )
+        assert response.status_code == 201
+
+    def test_auth_enabled_requires_token(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "agentManager.api._auth_settings",
+            {"auth_enabled": True, "auth_token": "test-secret"},
+        )
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+        )
+        assert response.status_code == 401
+
+    def test_auth_enabled_valid_token(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "agentManager.api._auth_settings",
+            {"auth_enabled": True, "auth_token": "test-secret"},
+        )
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+            headers={"Authorization": "Bearer test-secret"},
+        )
+        assert response.status_code == 201
+
+    def test_auth_enabled_invalid_token(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "agentManager.api._auth_settings",
+            {"auth_enabled": True, "auth_token": "test-secret"},
+        )
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+            headers={"Authorization": "Bearer wrong-token"},
+        )
+        assert response.status_code == 401
+
+    def test_health_endpoint_no_auth_required(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "agentManager.api._auth_settings",
+            {"auth_enabled": True, "auth_token": "test-secret"},
+        )
+        response = client.get("/health")
+        assert response.status_code == 200
+
+    def test_auth_enabled_missing_bearer_prefix_rejected(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "agentManager.api._auth_settings",
+            {"auth_enabled": True, "auth_token": "test-secret"},
+        )
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+            headers={"Authorization": "test-secret"},
+        )
+        assert response.status_code == 401
+
+
+class TestDocsDisabled:
+
+    def test_docs_enabled_by_default(self, client):
+        response = client.get("/docs")
+        assert response.status_code == 200
+
+    def test_docs_disabled_via_env(self):
+        code = (
+            "import os\n"
+            "os.environ['DOCS_ENABLED'] = 'false'\n"
+            "from fastapi.testclient import TestClient\n"
+            "from agentManager.api import app\n"
+            "client = TestClient(app)\n"
+            "r = client.get('/docs')\n"
+            "assert r.status_code == 404, f'Expected 404 for /docs, got {r.status_code}'\n"
+            "r = client.get('/redoc')\n"
+            "assert r.status_code == 404, f'Expected 404 for /redoc, got {r.status_code}'\n"
+            "r = client.get('/openapi.json')\n"
+            "assert r.status_code == 404, f'Expected 404 for /openapi.json, got {r.status_code}'\n"
+            "print('OK')\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert "OK" in result.stdout.strip().splitlines()
+
+
+class TestRequestBodySizeLimit:
+
+    def test_normal_request_body_accepted(self, client):
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+        )
+        assert response.status_code == 201
+
+    def test_oversized_request_body_rejected(self, client, monkeypatch):
+        monkeypatch.setenv("MAX_REQUEST_BODY_SIZE", "10")
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_with_a_very_long_name_to_exceed_limit",
+                "task_type": "data_processing",
+                "dependencies": [],
+            },
+        )
+        assert response.status_code == 413
+
+    def test_get_request_not_blocked_by_small_limit(self, client, monkeypatch):
+        monkeypatch.setenv("MAX_REQUEST_BODY_SIZE", "1")
+        response = client.get("/health")
+        assert response.status_code == 200
+
+    def test_content_length_at_limit_passes(self, client, monkeypatch):
+        monkeypatch.setenv("MAX_REQUEST_BODY_SIZE", "1048576")
+        response = client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+                "dependencies": [],
+            },
+        )
+        assert response.status_code == 201
+
+
+class TestInternalErrorNoLeak:
+
+    def test_create_task_internal_error_generic_message(self, client):
+        with patch.object(dag_engine, "add_node", side_effect=RuntimeError("database connection lost")):
+            response = client.post(
+                "/tasks",
+                json={
+                    "node_id": "task_1",
+                    "task_type": "data_processing",
+                    "dependencies": [],
+                },
+            )
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Internal server error"
+
+    def test_complete_task_internal_error_generic_message(self, client):
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+        with patch.object(dag_engine, "update_node_status", side_effect=RuntimeError("disk full")):
+            response = client.post("/tasks/task_1/complete")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Internal server error"
+
+    def test_fail_task_internal_error_generic_message(self, client):
+        client.post(
+            "/tasks",
+            json={
+                "node_id": "task_1",
+                "task_type": "type1",
+            },
+        )
+        with patch.object(dag_engine, "update_node_status", side_effect=RuntimeError("disk full")):
+            response = client.post("/tasks/task_1/fail?reason=test")
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Internal server error"
+
+
+class TestMetricsEndpoint:
+
+    def test_metrics_endpoint_exists(self, client):
+        response = client.get("/metrics")
+        assert response.status_code == 200
+
+    def test_metrics_endpoint_with_auth(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "agentManager.api._auth_settings",
+            {"auth_enabled": True, "auth_token": "test-secret"},
+        )
+        response = client.get("/metrics")
+        assert response.status_code == 401
+
+
+class TestRedisURLMasking:
+
+    def test_mask_url_with_credentials(self):
+        from agentManager.engine.event_bus.redis_stream import _mask_url
+        assert _mask_url("redis://user:password@localhost:6379/0") == "redis://***@localhost:6379/0"
+
+    def test_mask_url_without_credentials(self):
+        from agentManager.engine.event_bus.redis_stream import _mask_url
+        assert _mask_url("redis://localhost:6379/0") == "redis://localhost:6379/0"
+
+    def test_mask_url_without_scheme(self):
+        from agentManager.engine.event_bus.redis_stream import _mask_url
+        assert _mask_url("localhost:6379") == "localhost:6379"
+
+    def test_mask_url_with_at_in_password(self):
+        from agentManager.engine.event_bus.redis_stream import _mask_url
+        assert _mask_url("redis://admin:p@ss@redis.example.com:6379") == "redis://***@redis.example.com:6379"
+
+    def test_mask_url_rediss_scheme(self):
+        from agentManager.engine.event_bus.redis_stream import _mask_url
+        assert _mask_url("rediss://user:secret@host:6379") == "rediss://***@host:6379"
+
+    def test_mask_url_empty_string(self):
+        from agentManager.engine.event_bus.redis_stream import _mask_url
+        assert _mask_url("") == ""

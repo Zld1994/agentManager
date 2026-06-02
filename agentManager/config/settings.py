@@ -117,6 +117,13 @@ def get_sandbox_policy_settings() -> dict[str, Any]:
     }
 
 
+def get_auth_settings() -> dict[str, Any]:
+    return {
+        "auth_enabled": _parse_bool_setting(os.getenv("API_AUTH_ENABLED", "false")),
+        "auth_token": os.getenv("API_AUTH_TOKEN", ""),
+    }
+
+
 def get_observability_settings() -> dict[str, Any]:
     """Get observability configuration from environment variables.
 

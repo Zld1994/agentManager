@@ -3,11 +3,12 @@
 This module provides REST API endpoints for workflow and task management.
 """
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 from typing import List, Dict, Any
 from datetime import datetime, timezone
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 import logging
 import os
 import time
@@ -24,7 +25,7 @@ from agentManager.observability.logging import (
     set_request_context,
     clear_request_context,
 )
-from agentManager.config.settings import get_durable_backend_settings
+from agentManager.config.settings import get_auth_settings, get_durable_backend_settings
 from agentManager.observability.tracing import setup_tracing
 from agentManager.runtime.factory import configure_runtime_audit_sinks, create_runtime
 
@@ -42,11 +43,15 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_docs_enabled = os.getenv("DOCS_ENABLED", "true").lower() != "false"
+_docs_kwargs = {} if _docs_enabled else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
 # Initialize FastAPI app
 app = FastAPI(
     title="agentManager API",
     description="AI Agent Orchestration Control Plane",
     version="0.1.0",
+    **_docs_kwargs,
 )
 
 
@@ -62,6 +67,39 @@ def _instrument_fastapi_app(fastapi_app: FastAPI) -> bool:
 
 
 _instrument_fastapi_app(app)
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Attach security headers to every response."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+
+@app.middleware("http")
+async def request_body_size_limit_middleware(request: Request, call_next):
+    """Reject requests whose Content-Length exceeds the configured limit."""
+    content_length = request.headers.get("content-length")
+    if content_length:
+        max_size = int(os.getenv("MAX_REQUEST_BODY_SIZE", "1048576"))
+        try:
+            if int(content_length) > max_size:
+                return Response(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    content="Request body too large",
+                )
+        except ValueError:
+            pass
+    return await call_next(request)
+
+
+_allowed_hosts_str = os.getenv("ALLOWED_HOSTS", "")
+if _allowed_hosts_str:
+    _allowed_hosts = [h.strip() for h in _allowed_hosts_str.split(",") if h.strip()]
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
 
 
 @app.middleware("http")
@@ -120,17 +158,46 @@ _task_start_times: Dict[str, float] = {}
 
 
 # ============================================================================
+# Authentication
+# ============================================================================
+
+_auth_settings = get_auth_settings()
+
+
+def verify_token(request: Request):
+    """Validate Bearer token when API authentication is enabled."""
+    if not _auth_settings["auth_enabled"]:
+        return
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+    token = auth_header[7:]
+    if token != _auth_settings["auth_token"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+
+
+# ============================================================================
 # Metrics Endpoint
 # ============================================================================
 
-@app.get("/metrics")
-def metrics():
-    """Prometheus metrics endpoint.
+_metrics_enabled = os.getenv("METRICS_ENABLED", "true").lower() != "false"
 
-    Returns:
-        Prometheus format metrics
-    """
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+if _metrics_enabled:
+
+    @app.get("/metrics")
+    def metrics(_auth=Depends(verify_token)):
+        """Prometheus metrics endpoint.
+
+        Returns:
+            Prometheus format metrics
+        """
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ============================================================================
@@ -282,7 +349,7 @@ def _check_redis_dependency(redis_url: str) -> str:
 
 
 @app.get("/status")
-def get_status():
+def get_status(_auth=Depends(verify_token)):
     """Get system status.
 
     Returns:
@@ -311,7 +378,7 @@ def get_status():
 # ============================================================================
 
 @app.post("/tasks", response_model=TaskResponse, status_code=status.HTTP_201_CREATED)
-def create_task(request: TaskRequest):
+def create_task(request: TaskRequest, _auth=Depends(verify_token)):
     """Create a new task.
 
     Args:
@@ -398,12 +465,12 @@ def create_task(request: TaskRequest):
         errors_total.labels(error_type="task_creation").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Internal server error",
         )
 
 
 @app.get("/tasks/ready", response_model=ReadyTasksResponse)
-def get_ready_tasks():
+def get_ready_tasks(_auth=Depends(verify_token)):
     """Get all tasks ready for execution.
 
     Returns:
@@ -426,7 +493,7 @@ def get_ready_tasks():
 
 
 @app.get("/tasks/{task_id}", response_model=TaskResponse)
-def get_task(task_id: str):
+def get_task(task_id: str, _auth=Depends(verify_token)):
     """Get task information.
 
     Args:
@@ -465,7 +532,7 @@ def get_task(task_id: str):
 
 
 @app.post("/tasks/{task_id}/complete")
-def complete_task(task_id: str):
+def complete_task(task_id: str, _auth=Depends(verify_token)):
     """Mark task as completed.
 
     Args:
@@ -514,12 +581,12 @@ def complete_task(task_id: str):
         errors_total.labels(error_type="task_completion").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Internal server error",
         )
 
 
 @app.post("/tasks/{task_id}/fail")
-def fail_task(task_id: str, reason: str = ""):
+def fail_task(task_id: str, reason: str = "", _auth=Depends(verify_token)):
     """Mark task as failed.
 
     Args:
@@ -568,5 +635,5 @@ def fail_task(task_id: str, reason: str = ""):
         errors_total.labels(error_type="task_failure_handler").inc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e),
+            detail="Internal server error",
         )
