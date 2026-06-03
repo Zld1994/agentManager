@@ -11,10 +11,10 @@ Usage:
 """
 
 import argparse
-import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -100,10 +100,123 @@ def verify_tests() -> bool:
     return result.returncode == 0
 
 
+@dataclass(frozen=True)
+class DockerEnvironment:
+    """Detected Docker execution mode for local verification."""
+
+    mode: str
+    available: bool
+    docker_command: tuple[str, ...]
+    compose_command: tuple[str, ...]
+    wsl_project_path: Optional[str] = None
+    reason: str = ""
+
+
+def _run_probe(cmd: list[str]) -> bool:
+    """Return whether a lightweight availability probe succeeds."""
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return result.returncode == 0
+
+
+def windows_path_to_wsl(path: Path) -> Optional[str]:
+    """Convert a Windows drive-qualified path to a WSL /mnt path."""
+    resolved = path.resolve()
+    drive = resolved.drive.rstrip(":").lower()
+    if not drive:
+        return None
+    remainder = resolved.as_posix().split(":", 1)[1].lstrip("/")
+    return f"/mnt/{drive}/{remainder}"
+
+
+def detect_docker_environment(project_root: Optional[Path] = None) -> DockerEnvironment:
+    """Detect native Docker first, then WSL Docker on Windows."""
+    if shutil.which("docker") and _run_probe(["docker", "info"]):
+        return DockerEnvironment(
+            mode="native",
+            available=True,
+            docker_command=("docker",),
+            compose_command=("docker", "compose"),
+        )
+
+    if sys.platform.startswith("win") and shutil.which("wsl"):
+        root = project_root or Path.cwd()
+        wsl_project_path = windows_path_to_wsl(root)
+        if (
+            wsl_project_path
+            and _run_probe(["wsl", "docker", "info"])
+            and _run_probe(["wsl", "docker", "compose", "version"])
+        ):
+            return DockerEnvironment(
+                mode="wsl",
+                available=True,
+                docker_command=("wsl", "docker"),
+                compose_command=("wsl", "docker", "compose"),
+                wsl_project_path=wsl_project_path,
+            )
+
+    return DockerEnvironment(
+        mode="unavailable",
+        available=False,
+        docker_command=(),
+        compose_command=(),
+        reason="Docker is not available from this shell or WSL.",
+    )
+
+
+def _docker_verify_commands(docker_env: DockerEnvironment) -> list[list[str]]:
+    """Build local Docker verification commands for the detected environment."""
+    if docker_env.mode == "wsl":
+        if not docker_env.wsl_project_path:
+            raise ValueError("WSL Docker verification requires a WSL project path")
+        return [
+            ["wsl", "--cd", docker_env.wsl_project_path, "docker", "compose", "config"],
+            [
+                "wsl",
+                "--cd",
+                docker_env.wsl_project_path,
+                "docker",
+                "build",
+                "-f",
+                "Dockerfile.prod",
+                "-t",
+                "agentmanager:prod",
+                ".",
+            ],
+        ]
+    return [
+        ["docker", "compose", "config"],
+        ["docker", "build", "-f", "Dockerfile.prod", "-t", "agentmanager:prod", "."],
+    ]
+
+
+def verify_docker(
+    dry_run: bool,
+    docker_env: Optional[DockerEnvironment] = None,
+    project_root: Optional[Path] = None,
+) -> bool:
+    """Verify local Docker/Compose using native Docker or Windows WSL fallback."""
+    env = docker_env or detect_docker_environment(project_root)
+    if not env.available:
+        print(f"WARNING: {env.reason}")
+        return False
+
+    print(f"Docker verification mode: {env.mode}")
+    for cmd in _docker_verify_commands(env):
+        if dry_run:
+            print(f"[dry-run] {' '.join(cmd)}")
+            continue
+        subprocess.run(cmd, check=True)
+    return True
+
+
 def check_docker() -> Optional[str]:
-    """Check if Docker is available."""
-    path = shutil.which("docker")
-    return path
+    """Check if Docker is available through native Docker or WSL."""
+    docker_env = detect_docker_environment()
+    if not docker_env.available:
+        return None
+    if docker_env.mode == "wsl":
+        return "WSL Docker"
+    return shutil.which("docker")
 
 
 def main() -> None:
@@ -114,6 +227,11 @@ def main() -> None:
     parser.add_argument("--with-dev", action="store_true", default=True, help="Include dev extra")
     parser.add_argument("--verify", action="store_true", help="Verify import after install")
     parser.add_argument("--verify-tests", action="store_true", help="Run smoke tests after install")
+    parser.add_argument(
+        "--verify-docker",
+        action="store_true",
+        help="Verify Docker/Compose locally",
+    )
     parser.add_argument("--no-dev", action="store_true", help="Skip dev extra")
     args = parser.parse_args()
 
@@ -141,11 +259,18 @@ def main() -> None:
     pip_install(args.dry_run, extras, dev=dev)
 
     if args.with_sandbox:
-        docker = check_docker()
-        if docker:
-            print(f"Docker found: {docker}")
+        docker_env = detect_docker_environment()
+        if docker_env.available:
+            if docker_env.mode == "wsl":
+                print(f"Docker found via WSL: {docker_env.wsl_project_path}")
+            else:
+                print(f"Docker found: {shutil.which('docker')}")
         else:
             print("WARNING: Docker not found - sandbox execution requires Docker")
+
+    if args.verify_docker:
+        if not verify_docker(args.dry_run, project_root=Path.cwd()):
+            print("WARNING: Docker verification did not run successfully")
 
     if args.verify:
         if not args.dry_run:

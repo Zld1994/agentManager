@@ -20,7 +20,7 @@ agentManager 是一个 AI Agent 控制平面的原型实现。它提供了任务
 - Built-in skill/MCP template library with project-level override support
 - Runtime hooks subsystem (opt-in via HOOKS_ENABLED=true)
 - Scheduled task runner with asyncio-based dispatch
-- Cross-platform install script (scripts/install.py) with --dry-run / --verify modes
+- Cross-platform install script (scripts/install.py) with --dry-run / --verify / --verify-docker modes
 - 902+ unit tests (100% passing)
 - Opt-in durable backend interfaces for PostgreSQL state, S3-compatible checkpoints,
   Redis Streams retries, and pluggable vector memory
@@ -58,6 +58,9 @@ python scripts/install.py --with-sandbox --with-otel
 
 # Install and verify
 python scripts/install.py --verify --verify-tests
+
+# Verify local Docker/Compose, using WSL Docker fallback on Windows when available
+python scripts/install.py --verify-docker
 ```
 
 See [docs/install.md](docs/install.md) for platform-specific instructions.

@@ -150,10 +150,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check Docker and Compose availability
+        run: |
+          if ! command -v docker > /dev/null 2>&1; then
+            echo "SKIP_DOCKER_VERIFY=1" >> "$GITHUB_ENV"
+            echo "DOCKER_SKIP_REASON=Docker CLI is not available on the runner" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if ! docker info > /dev/null 2>&1; then
+            echo "SKIP_DOCKER_VERIFY=1" >> "$GITHUB_ENV"
+            echo "DOCKER_SKIP_REASON=Docker daemon is not available on the runner" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          if ! docker compose version > /dev/null 2>&1; then
+            echo "SKIP_DOCKER_VERIFY=1" >> "$GITHUB_ENV"
+            echo "DOCKER_SKIP_REASON=Docker Compose v2 is not available on the runner" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
       - name: Verify compose syntax
+        if: env.SKIP_DOCKER_VERIFY != '1'
         run: docker compose config
 
       - name: Pull base image with retry
+        if: env.SKIP_DOCKER_VERIFY != '1'
         id: pull-base
         run: |
           for i in 1 2 3; do
@@ -165,21 +185,24 @@ jobs:
             sleep 10
           done
           echo "All pull attempts failed, marking docker builds as skipped"
-          echo "SKIP_DOCKER_BUILD=1" >> $GITHUB_ENV
+          echo "SKIP_DOCKER_BUILD=1" >> "$GITHUB_ENV"
+          echo "DOCKER_SKIP_REASON=Docker image builds skipped because python:3.11-slim could not be pulled" >> "$GITHUB_ENV"
 
       - name: Build production image
-        if: env.SKIP_DOCKER_BUILD != '1'
+        if: env.SKIP_DOCKER_VERIFY != '1' && env.SKIP_DOCKER_BUILD != '1'
         run: docker build -f Dockerfile.prod -t agentmanager:prod .
 
       - name: Build development image
-        if: env.SKIP_DOCKER_BUILD != '1'
+        if: env.SKIP_DOCKER_VERIFY != '1' && env.SKIP_DOCKER_BUILD != '1'
         run: docker build -f Dockerfile.dev -t agentmanager:dev .
 
       - name: Report docker-verify status
         if: always()
         run: |
-          if [ "${SKIP_DOCKER_BUILD:-0}" = "1" ]; then
-            echo "::warning::Docker image builds skipped due to Docker Hub connectivity issues"
+          if [ "${SKIP_DOCKER_VERIFY:-0}" = "1" ] || [ "${SKIP_DOCKER_BUILD:-0}" = "1" ]; then
+            echo "::warning::${DOCKER_SKIP_REASON:-Docker verification was skipped}"
+          else
+            echo "Docker verification completed without skip conditions"
           fi
 
   sandbox-integration:
@@ -202,9 +225,16 @@ jobs:
 
       - name: Check Docker availability
         run: |
+          if ! command -v docker > /dev/null 2>&1; then
+            echo "Docker CLI not available, skipping sandbox integration tests"
+            echo "SKIP_SANDBOX_TESTS=1" >> "$GITHUB_ENV"
+            echo "SANDBOX_SKIP_REASON=Docker CLI is not available on the runner" >> "$GITHUB_ENV"
+            exit 0
+          fi
           if ! docker info > /dev/null 2>&1; then
             echo "Docker not available, skipping sandbox integration tests"
-            echo "SKIP_SANDBOX_TESTS=1" >> $GITHUB_ENV
+            echo "SKIP_SANDBOX_TESTS=1" >> "$GITHUB_ENV"
+            echo "SANDBOX_SKIP_REASON=Docker daemon is not available on the runner" >> "$GITHUB_ENV"
           fi
 
       - name: Pull sandbox image
@@ -219,8 +249,18 @@ jobs:
             sleep 10
           done
           echo "All pull attempts failed, skipping sandbox tests"
-          echo "SKIP_SANDBOX_TESTS=1" >> $GITHUB_ENV
+          echo "SKIP_SANDBOX_TESTS=1" >> "$GITHUB_ENV"
+          echo "SANDBOX_SKIP_REASON=Sandbox integration skipped because python:3.11-slim could not be pulled" >> "$GITHUB_ENV"
 
       - name: Run Docker sandbox integration tests
         if: env.SKIP_SANDBOX_TESTS != '1'
         run: pytest tests/integration/test_sandbox_docker.py -v --no-cov -m integration
+
+      - name: Report sandbox integration status
+        if: always()
+        run: |
+          if [ "${SKIP_SANDBOX_TESTS:-0}" = "1" ]; then
+            echo "::warning::${SANDBOX_SKIP_REASON:-Sandbox integration tests were skipped}"
+          else
+            echo "Sandbox integration completed without skip conditions"
+          fi

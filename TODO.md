@@ -1,5 +1,12 @@
 # 待办事项
 
+## 2026-06-03 CI Docker / WSL fallback 同步记录
+
+- 已完成：CI Docker 稳定性增强。`docker-verify` 现在先检查 Docker CLI、daemon 和 Compose v2；`python:3.11-slim` 拉取失败时保留 3 次重试并通过 `::warning::` 标记跳过原因；`sandbox-integration` 同步增加 Docker CLI/daemon 检查、镜像重试和最终状态报告。
+- 已完成：本地安装脚本新增 `--verify-docker`，优先使用 native Docker，Windows 下 native Docker 不可用时自动探测 WSL Docker/Compose，并在 dry-run 中展示将执行的验证命令。
+- 本次本地验证：`py -3.12 -m pytest tests/unit/test_install_scripts.py -q --no-cov`、`py -3.12 -m flake8 scripts/install.py tests/unit/test_install_scripts.py --max-line-length=100 --jobs=1`、AST 解析、`git diff --check` 均已通过；`.venv312` 当前解释器路径异常，改用系统 Python 3.12。
+- 推送后仍需查看新的 GitHub Actions run，确认远端 Python 3.10/3.11/3.12、`docker-verify` 和 `sandbox-integration` job 状态。
+
 ## 当前同步状态 (2026-06-03)
 
 - `taskList.md` 中的 `OPT-*` 优化任务已全部完成，旧的优化问题清单仅保留为历史记录。
