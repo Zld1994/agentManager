@@ -4,6 +4,7 @@
 
 - `taskList.md` 中的 `OPT-*` 优化任务已全部完成，旧的优化问题清单仅保留为历史记录。
 - 本次代码审查发现的 task-plan 确认钩子、确认失败事件、重复 item ID 校验、锁外事件发布、相对 workdir 约束、RuntimeFactory scheduled runner 创建，以及安装脚本 extras 组合规则均已修复。
+- 本次事实复核：原「待处理的优化问题」15 条与「建议的重构路线图」4 条按当前仓库代码状态已逐一比对——15 条优化问题均已通过 `OPT-0.1` / `OPT-1.1`-`OPT-1.3` / `OPT-2.1`-`OPT-2.4` / `OPT-3.1`-`OPT-3.6` / `OPT-4.1`-`OPT-4.2` / `OPT-5.1`-`OPT-5.3` / `OPT-6.1`-`OPT-6.2` 完成；重构路线图 4 条全部完成。仅沙箱强化（每任务工作空间隔离 + 更严格超时清理 + 生产容器策略审查）尚未作为独立任务勾选。
 - 本地最新验证命令：`py -3.12 -m pytest tests/unit -q --no-cov`、`py -3.12 -m flake8 agentManager tests/unit --max-line-length=100 --jobs=1`、`git diff --check`。
 - 推送后仍需查看新的 GitHub Actions run，确认远端 Python 3.10/3.11/3.12、Docker verify 和 sandbox integration job 状态。
 ## CI 修复记录 (2026-06-02)
@@ -82,12 +83,72 @@
 
 ## 建议的重构路线图
 
+> 状态：4 条路线全部完成 ✅（2026-05-28 ~ 2026-06-02 期间逐条落地，详见 [taskList-finished.md](file:///h:/AllProject/agentManager/taskList-finished.md) 中的 P0-P3 与 M4-A/B/C/D/E/F 章节）
+
+1. ✅ 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。
+2. ✅ 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。通过 `RuntimeFactory` 完成。
+3. ✅ 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。通过 `WorkflowCoordinator` memory write-back 和 `resume_workflow` 完成。
+4. ✅ 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。基础框架、M4-C span 覆盖、M4-D.1.2、M4-E 审计落库与启动注入、M4-F.3 性能基准已完成。
+
+---
+
+## 待处理的优化问题
+
+> 状态：原 15 条全部已通过 `OPT-*` 任务实现 ✅（详见 [taskList-finished.md](file:///h:/AllProject/agentManager/taskList-finished.md) 的 `OPT-*` 章节）。本节按事实重写为「已实现」+「未实现 / 后续增强」两份清单。
+
+### ✅ 已实现（2026-05-31 ~ 2026-06-02）
+
+| 原问题 | 对应 OPT-* 任务 | 落地位置 |
+|--------|----------------|----------|
+| 提供一键安装程序，并估算支持 Linux、Windows 和 macOS 所需的工作量 | `OPT-5.1`、`OPT-5.2`、`OPT-5.3` | [scripts/install.py](file:///h:/AllProject/agentManager/scripts/install.py)、[scripts/install.ps1](file:///h:/AllProject/agentManager/scripts/install.ps1)、[scripts/install.sh](file:///h:/AllProject/agentManager/scripts/install.sh)、[docs/install.md](file:///h:/AllProject/agentManager/docs/install.md) |
+| 确定代理配置方式：项目级每个代理的 `.md` 文件与运行时提示注入 | `OPT-1.1`、`OPT-1.2`、`OPT-2.4` | [agentManager/config/agent_profiles.py](file:///h:/AllProject/agentManager/agentManager/config/agent_profiles.py)、[agentManager/agents/prompt_builder.py](file:///h:/AllProject/agentManager/agentManager/agents/prompt_builder.py) |
+| 定义技能如何跨代理和配置文件重用 | `OPT-2.1`、`OPT-2.2`、`OPT-2.3` | [agentManager/agents/template_library.py](file:///h:/AllProject/agentManager/agentManager/agents/template_library.py)、[agentManager/agents/registry.py](file:///h:/AllProject/agentManager/agentManager/agents/registry.py) |
+| 确定子组件是否需要通信，并选择通信机制 | `OPT-3.6` | 复用现有 `EventBus` / Redis Streams；扩展 `EventType.TASK_PLAN_*` / `AGENT_ASSIGNED` |
+| 支持基于配置文件的不同代理类型的技能配置 | `OPT-2.3` | [agentManager/agents/registry.py](file:///h:/AllProject/agentManager/agentManager/agents/registry.py) |
+| 确定是否应支持定时任务和钩子 | `OPT-4.1`、`OPT-4.2` | [agentManager/runtime/hooks.py](file:///h:/AllProject/agentManager/agentManager/runtime/hooks.py)、[agentManager/runtime/scheduled_tasks.py](file:///h:/AllProject/agentManager/agentManager/runtime/scheduled_tasks.py) |
+| 构建项目地图，并确定哪些提示或技能应减少代理上下文使用 | `OPT-2.4` | [scripts/generate_project_map.py](file:///h:/AllProject/agentManager/scripts/generate_project_map.py)、[docs/project-map.md](file:///h:/AllProject/agentManager/docs/project-map.md) |
+| 支持具有高级和低级层级的默认代理，管理代理默认为高级层级 | `OPT-1.3` | [agentManager/agents/defaults.py](file:///h:/AllProject/agentManager/agentManager/agents/defaults.py) 中 `AgentLayer.high/low`，manager profile 固定为 `high` |
+| 允许用户配置可将工作拆分为已验证任务 JSON 的管理者角色 | `OPT-3.1`、`OPT-3.2` | [agentManager/domain/task_plan.py](file:///h:/AllProject/agentManager/agentManager/domain/task_plan.py)、[agentManager/roles/manager_role.py](file:///h:/AllProject/agentManager/agentManager/roles/manager_role.py) |
+| 设计提示、模式和 UI 流程，让用户能够检查和编辑生成的任务 JSON | `OPT-3.3`、`OPT-3.4` | `POST /task-plans`、`GET /task-plans/{id}`、`PUT /task-plans/{id}`、`POST /task-plans/{id}/confirm`（见 [docs/api.md](file:///h:/AllProject/agentManager/docs/api.md)） |
+| 支持临时角色/模板选择、用户确认以及分配给特定代理 | `OPT-3.4` | `POST /task-plans` 请求模型支持 `temporary_roles` / `selected_templates` / `preferred_assignees`，`confirm` 时冻结 |
+| 在用户确认所选代理后配置每个代理的工作目录 | `OPT-3.5` | `TaskExecutor.run_task()` 读 metadata 中的 `agent_id` / `workdir`，`WorkerSandbox` 派生 workspace + 路径逃逸校验 |
+| 定义角色创建期间可用的内置技能和 MCP 模板库 | `OPT-2.1` | [agentManager/agents/template_library.py](file:///h:/AllProject/agentManager/agentManager/agents/template_library.py) 提供 `task-planning` / `code-review` / `sandbox-execution` 技能与 `filesystem` / `event-bus` MCP 条目 |
+| 允许用户向模板库添加新技能或 MCP 条目 | `OPT-2.2` | 项目模板目录 `<config_dir>/templates/{skills,mcp}/*.md`，同名覆盖内置并标记 `source=project` |
+| 让用户和管理器创建的角色都可以从当前技能/MCP 模板列表中选择 | `OPT-2.3` | `AgentRegistry.resolve_agent(agent_id)` 解析并返回 profile + 已绑定 skill/MCP 模板 |
+
+### ⏳ 未实现 / 后续增强
+
+| 项 | 说明 | 备注 |
+|----|------|------|
+| 沙箱强化（每任务工作空间隔离 + 更严格超时清理 + 生产容器策略审查） | `M4-D.1.1` / `M4-D.1.2` 已为现有 cap_drop / ReadonlyRootfs / no-new-privileges 写集成断言，但「每任务独立工作空间」「更严格超时清理策略」「生产容器策略审查」未作为独立任务勾选 | 旧 `TODO.md` "Obsidian 审查中的待修复项" 第 78 行原话保留；当前 WorkerSandbox 已硬编码 `cap_drop=["ALL"]`，但未提供按任务拆分的 workspace 隔离强化 |
+| 远端 CI 整体失败 | 旧 `TODO.md` 已多次标记「最新 CI run 整体仍为 failure」；当前 [taskList-finished.md](file:///h:/AllProject/agentManager/taskList-finished.md) `CI-1` ~ `CI-4` 已本地修复 coverage / mypy / flake8 / starlette 告警，但远端 GitHub Actions run 仍待推送后查看新 run | 阻塞项：远端 coverage 阈值、Python 3.11 core mypy 远端表现 |
+| 静态完成报告基于 CI（`M4-A.5`） | 完成报告生成与从 CI 拉取测试状态未完全自动化；当前仍以本地 `pytest` 输出为准 | 旧 `TODO.md` "Obsidian 审查中的待修复项" 第 77 行原话保留 |
+
+---
+
+## Obsidian 审查中的待修复项
+
+- ✅ 已完成：在 Windows 或 WSL 中可用 Docker Compose v2 且 Docker Hub 镜像拉取正常后，依次运行 `docker compose config`、`docker compose build agentmanager`、`docker compose up -d`、API `/health` 检查、`docker build -f Dockerfile.prod -t agentmanager:prod .` 和 `docker compose down`。→ M4-A.2
+- ✅ 已完成：CI `docker-verify` 与 `sandbox-integration` job 已加（`M4-A.5`、`M4-D.2`），但「静态完成报告从 CI 生成」尚未完全自动化。→ M4-A.5（部分）
+- ⏳ 未完成：在当前默认值基础上继续强化 WorkerSandbox：隔离的每个任务工作空间、更严格的超时清理和生产容器策略审查。→ M4-D（强化部分）
+- ✅ 已完成：完善审计事件数据库和对象存储写入实现。→ M4-E.1-M4-E.6
+- ✅ 已完成：应用启动时注入审计 sink，以及 `audit_record.content_hash` 防篡改基础。→ M4-E.7
+- ✅ 已完成：为关键组件添加 OpenTelemetry 细粒度 span（检查点、内存操作、沙箱执行等）。→ M4-C
+
+---
+
+## 建议的重构路线图（已废弃重写，保留以备历史对照）
+
+> 以下 4 条已全部完成 ✅，上文已重写为「重构路线图」最新状态；本段保留旧版叙述，仅供历史比对。
+
 1. 首先修复 P0 运行时问题：API 启动、包发现、DAG 循环检测、调度器循环行为、HITL 转换、EventBus 通配符处理和监控配置。✅
 2. 将持久化后端连接到生产运行时路径：从部署配置实例化 PostgreSQL 状态存储、对象存储检查点和持久化内存。✅ 已通过 RuntimeFactory 完成。
 3. 端到端连接执行循环，从工作流创建到沙箱执行、恢复、缺陷修复和内存写回。✅ 已通过 WorkflowCoordinator memory write-back 和 resume_workflow 完成。
 4. 添加生产安全和可观测性：沙箱强化、密钥管理、审计日志、Prometheus 指标、OpenTelemetry 追踪、结构化日志、CI/CD 和部署文档。✅ 基础框架、M4-C span 覆盖、M4-D.1.2、M4-E 审计落库与启动注入、M4-F.3 性能基准已完成
 
-## 待处理的优化问题
+## 待处理的优化问题（已废弃重写，保留以备历史对照）
+
+> 原 15 条全部已实现 ✅，上文已重写为「已实现 / 未实现」两份清单；本段保留旧版叙述，仅供历史比对。
 
 - 提供一键安装程序，并估算支持 Linux、Windows 和 macOS 所需的工作量。
 - 确定代理配置方式：项目级每个代理的 `.md` 文件与运行时提示注入。

@@ -22,6 +22,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from agentManager.config.settings import get_auth_settings, get_durable_backend_settings
 from agentManager.domain.models import Event, EventType
 from agentManager.engine.dag import DAGNode, TaskStatus
+from agentManager.engine.event_bus.in_memory import InMemoryEventBus
 from agentManager.engine.state_manager import TaskState
 from agentManager.observability.logging import (
     clear_request_context,
@@ -131,7 +132,20 @@ configure_runtime_audit_sinks(_runtime_settings)
 _runtime = create_runtime(settings=_runtime_settings)
 dag_engine = _runtime.dag_engine
 state_machine = _runtime.state_machine
-event_bus = _runtime.event_bus
+# The FastAPI process uses an in-process InMemoryEventBus for the
+# synchronous ``publish``/``subscribe``/``get_events`` calls driven by the
+# request handlers and in-process subscribers (hooks, tests). When the
+# runtime's ``event_bus`` is also an ``InMemoryEventBus`` (i.e. no Redis
+# configured), we reuse the same instance so API-published events are visible
+# to runtime subscribers. When the runtime uses an async backend (e.g.
+# ``RedisStreamEventBus``), a separate ``InMemoryEventBus`` is created for
+# the synchronous API layer; the async runtime bus is left to workflow/task
+# executor paths that ``await`` its coroutine methods.
+_runtime_bus = _runtime.event_bus
+if isinstance(_runtime_bus, InMemoryEventBus):
+    event_bus = _runtime_bus
+else:
+    event_bus = InMemoryEventBus()
 scheduler = _runtime.scheduler
 
 # In-memory task plan storage (prototype) with thread-safe access
@@ -460,7 +474,7 @@ def get_status(_auth=Depends(verify_token)):
         Current system status including task counts
     """
     try:
-        events_count = len(event_bus.events) if hasattr(event_bus, "events") else 0
+        events_count = len(event_bus.events)
         return {
             "total_tasks": len(dag_engine.nodes),
             "running_tasks": len(scheduler.running_tasks),
