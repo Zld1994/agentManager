@@ -60,6 +60,12 @@ test_tmp/
 TASK_COMPLETION_SUMMARY.txt
 =0.17.0
 
+# Frontend workspaces
+ui/**/node_modules/
+ui/**/dist/
+ui/**/.vite/
+ui/**/coverage/
+
 # CodeGraph daemon
 .codegraph/
 

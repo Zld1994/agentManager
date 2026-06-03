@@ -87,6 +87,24 @@ python -m uvicorn agentManager.api:app --host 127.0.0.1 --port 8000
 # ReDoc: http://localhost:8000/redoc
 ```
 
+### Task Plan Workbench
+
+The optional browser/PWA workbench lives in `ui/agentmanager-workbench` and is
+served by FastAPI at `/ui` when its Vite build output exists.
+
+```bash
+cd ui/agentmanager-workbench
+npm install
+npm run build
+cd ../..
+python -m uvicorn agentManager.api:app --host 0.0.0.0 --port 8000
+```
+
+Open `http://127.0.0.1:8000/ui` on the desktop. For phone access on the same
+LAN, open `http://<desktop-ip>:8000/ui`. If `API_AUTH_ENABLED=true`, enter the
+same bearer token in the workbench token field; it is stored only in browser
+session storage.
+
 ### Runtime Modes
 
 agentManager supports three runtime modes, selected automatically by the

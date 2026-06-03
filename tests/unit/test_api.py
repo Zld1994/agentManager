@@ -6,6 +6,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from agentManager.api import app, dag_engine, state_machine, event_bus, scheduler
 import agentManager.api as api_module
@@ -720,6 +721,48 @@ class TestRedisURLMasking:
 
 
 class TestTaskPlanReviewFlow:
+    def test_list_task_plans_returns_review_summaries(self, client):
+        for plan_id, source_task_id in [
+            ("plan-alpha", "task-alpha"),
+            ("plan-beta", "task-beta"),
+        ]:
+            response = client.post(
+                "/task-plans",
+                json={
+                    "plan_id": plan_id,
+                    "source_task_id": source_task_id,
+                    "items": [
+                        {
+                            "id": f"{plan_id}-item",
+                            "title": f"Review {plan_id}",
+                            "verification": "Run focused verification",
+                        },
+                    ],
+                },
+            )
+            assert response.status_code == 201
+
+        response = client.get("/task-plans")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["total"] == 2
+        summaries = {plan["plan_id"]: plan for plan in data["task_plans"]}
+        assert summaries["plan-alpha"]["source_task_id"] == "task-alpha"
+        assert summaries["plan-alpha"]["status"] == "draft"
+        assert summaries["plan-alpha"]["items_count"] == 1
+        assert "updated_at" in summaries["plan-alpha"]
+
+    def test_list_task_plans_uses_api_auth(self, client, monkeypatch):
+        monkeypatch.setattr(
+            "agentManager.api._auth_settings",
+            {"auth_enabled": True, "auth_token": "test-secret"},
+        )
+
+        response = client.get("/task-plans")
+
+        assert response.status_code == 401
+
     def test_create_task_plan_rejects_duplicate_item_ids(self, client):
         response = client.post(
             "/task-plans",
@@ -811,3 +854,38 @@ class TestTaskPlanReviewFlow:
         )
 
         assert response.status_code == 201
+
+
+class TestUIStaticMount:
+    def test_mount_ui_serves_index_and_spa_routes(self, tmp_path):
+        dist_dir = tmp_path / "dist"
+        dist_dir.mkdir()
+        (dist_dir / "index.html").write_text(
+            "<!doctype html><title>agentManager Workbench</title>",
+            encoding="utf-8",
+        )
+
+        ui_app = FastAPI()
+        mounted = api_module._mount_ui_app(ui_app, dist_dir=dist_dir, enabled=True)
+        client = TestClient(ui_app)
+
+        assert mounted is True
+        root_response = client.get("/ui/")
+        assert root_response.status_code == 200
+        assert "agentManager Workbench" in root_response.text
+        route_response = client.get("/ui/task-plans/plan-alpha")
+        assert route_response.status_code == 200
+        assert "agentManager Workbench" in route_response.text
+
+    def test_mount_ui_skips_missing_dist_without_breaking_api(self, tmp_path):
+        ui_app = FastAPI()
+
+        mounted = api_module._mount_ui_app(
+            ui_app,
+            dist_dir=tmp_path / "missing-dist",
+            enabled=True,
+        )
+        response = TestClient(ui_app).get("/ui/")
+
+        assert mounted is False
+        assert response.status_code == 404

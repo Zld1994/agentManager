@@ -350,6 +350,36 @@ curl -X POST http://localhost:8000/tasks/task_1/fail
 
 ### Task Plan Management
 
+#### GET /task-plans
+
+List task plan summaries for the workbench navigation view.
+
+**Request**:
+```bash
+curl http://localhost:8000/task-plans
+```
+
+**Response** (200 OK):
+```json
+{
+  "task_plans": [
+    {
+      "plan_id": "plan-1",
+      "source_task_id": "task-1",
+      "status": "draft",
+      "items_count": 2,
+      "updated_at": "2026-06-03T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+**Error Responses**:
+- 401 Unauthorized: API authentication is enabled and the bearer token is missing or invalid
+
+---
+
 #### POST /task-plans
 
 Create a task decomposition plan from a source task. Validates duplicate item IDs

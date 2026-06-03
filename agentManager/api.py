@@ -15,8 +15,10 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import Response
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field, field_validator
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from agentManager.config.settings import get_auth_settings, get_durable_backend_settings
@@ -64,6 +66,46 @@ app = FastAPI(
     version="0.1.0",
     **_docs_kwargs,
 )
+
+
+class SPAStaticFiles(StaticFiles):
+    """Serve a built SPA and fall back unknown client routes to index.html."""
+
+    async def get_response(self, path: str, scope):
+        try:
+            return await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == status.HTTP_404_NOT_FOUND:
+                return await super().get_response("index.html", scope)
+            raise
+
+
+def _mount_ui_app(
+    fastapi_app: FastAPI,
+    *,
+    dist_dir: str | Path | None = None,
+    enabled: bool | None = None,
+) -> bool:
+    """Mount the optional workbench UI under /ui when build output exists."""
+    if enabled is None:
+        enabled = os.getenv("UI_ENABLED", "true").lower() != "false"
+    if not enabled:
+        return False
+
+    configured_dir = Path(dist_dir or os.getenv("UI_DIST_DIR", "ui/agentmanager-workbench/dist"))
+    if not configured_dir.is_absolute():
+        configured_dir = Path(__file__).resolve().parents[1] / configured_dir
+
+    if not (configured_dir / "index.html").is_file():
+        logger.info("Workbench UI not mounted; missing %s", configured_dir / "index.html")
+        return False
+
+    fastapi_app.mount(
+        "/ui",
+        SPAStaticFiles(directory=str(configured_dir), html=True),
+        name="agentmanager-ui",
+    )
+    return True
 
 
 def _instrument_fastapi_app(fastapi_app: FastAPI) -> bool:
@@ -405,6 +447,23 @@ class TaskPlanResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     metadata: Dict[str, Any] = {}
+
+
+class TaskPlanSummaryResponse(BaseModel):
+    """Compact task plan summary for workbench list views."""
+
+    plan_id: str
+    source_task_id: str = ""
+    status: str
+    items_count: int
+    updated_at: datetime
+
+
+class TaskPlanListResponse(BaseModel):
+    """Response model for listing task plan summaries."""
+
+    task_plans: List[TaskPlanSummaryResponse]
+    total: int
 
 
 # ============================================================================
@@ -806,6 +865,26 @@ def _plan_to_response(plan: _TaskPlan) -> TaskPlanResponse:
     )
 
 
+def _plan_to_summary(plan: _TaskPlan) -> TaskPlanSummaryResponse:
+    """Convert a TaskPlan dataclass to a compact list summary."""
+    return TaskPlanSummaryResponse(
+        plan_id=plan.plan_id,
+        source_task_id=plan.source_task_id,
+        status=plan.status.value if isinstance(plan.status, _TaskPlanStatus) else plan.status,
+        items_count=len(plan.items),
+        updated_at=plan.updated_at,
+    )
+
+
+@app.get("/task-plans", response_model=TaskPlanListResponse)
+def list_task_plans(_auth=Depends(verify_token)):
+    """List task plans for review workbench navigation."""
+    with _task_plans_lock:
+        plans = sorted(_task_plans.values(), key=lambda plan: plan.updated_at, reverse=True)
+        summaries = [_plan_to_summary(plan) for plan in plans]
+    return TaskPlanListResponse(task_plans=summaries, total=len(summaries))
+
+
 @app.post("/task-plans", status_code=status.HTTP_201_CREATED)
 def create_task_plan(
     request: TaskPlanRequest,
@@ -1102,3 +1181,6 @@ def confirm_task_plan(
             )
         )
     return response
+
+
+_mount_ui_app(app)
