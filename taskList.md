@@ -1,8 +1,11 @@
 # agentManager 未完成任务清单
 
-> **更新时间：** 2026-06-02
-> **状态：** 已新增 TODO「待处理优化问题」的细粒度开发任务；按优先级和依赖关系执行。
-> 下方仍保留既有 CI 完成记录；新增 `OPT-*` 为当前开放执行项。
+> **更新时间：** 2026-06-03
+> **状态：** 所有 OPT-* 优化任务已完成；按优先级和依赖关系顺序执行完毕。
+> 所有 `OPT-*` 任务已完成。
+> **审查修复：** 2026-06-03 已补齐 task-plan 确认钩子、确认失败事件、重复 item ID
+> 拒绝、锁外事件发布、相对 workdir 约束、RuntimeFactory scheduled runner 创建，以及
+> 安装脚本 extras 组合规则。
 
 ---
 
@@ -20,7 +23,7 @@
 
 ### P0：配置契约和默认代理基座
 
-- [ ] **OPT-0.1 明确优化范围、验收口径和当前能力基线**
+- [x] **OPT-0.1 明确优化范围、验收口径和当前能力基线**
   - 优先级：P0
   - 依赖：无
   - 目标：把本轮优化限定为后端配置、API、角色/任务 JSON、模板库、安装脚本和文档；当前仓库没有前端目录，因此 UI 先落为 FastAPI/OpenAPI 的 JSON 审阅流程。
@@ -31,7 +34,7 @@
     3. 将每个 TODO 优化点映射到本 taskList 的任务 ID，避免遗漏。
   - 验收：`docs/reports/optimization-backlog-scope.md` 中包含 TODO 到 `OPT-*` 的映射表；`git diff --check` 通过。
 
-- [ ] **OPT-1.1 定义 AgentProfile、技能引用、MCP 引用和层级模型**
+- [x] **OPT-1.1 定义 AgentProfile、技能引用、MCP 引用和层级模型**
   - 优先级：P0
   - 依赖：`OPT-0.1`
   - 目标：为项目级代理 `.md` 配置、默认高级/低级代理、技能选择和工作目录提供稳定数据契约。
@@ -44,7 +47,7 @@
     5. 单测覆盖枚举转换、缺失必填字段、默认层级、技能/MCP 引用保留顺序、非法 workdir 拒绝。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_agent_config_models.py -q --no-cov` 通过。
 
-- [ ] **OPT-1.2 实现项目级代理 Markdown 配置加载器**
+- [x] **OPT-1.2 实现项目级代理 Markdown 配置加载器**
   - 优先级：P0
   - 依赖：`OPT-1.1`
   - 目标：支持每个代理一个 `.md` 文件，文件头部保存结构化配置，正文作为运行时提示词来源。
@@ -57,7 +60,7 @@
     5. 单测覆盖正常加载、无 front matter、无效 JSON、重复 agent、正文 prompt 注入。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_agent_profiles_loader.py -q --no-cov` 通过。
 
-- [ ] **OPT-1.3 提供默认高级/低级代理配置和管理者默认层级**
+- [x] **OPT-1.3 提供默认高级/低级代理配置和管理者默认层级**
   - 优先级：P0
   - 依赖：`OPT-1.2`
   - 目标：支持默认代理层级，高级层包含 manager/supervisor，低级层包含 worker；管理代理默认属于高级层级。
@@ -71,7 +74,7 @@
 
 ### P1：技能/MCP 模板库和提示注入
 
-- [ ] **OPT-2.1 定义内置技能和 MCP 模板库契约**
+- [x] **OPT-2.1 定义内置技能和 MCP 模板库契约**
   - 优先级：P1
   - 依赖：`OPT-1.1`
   - 目标：角色创建期间可以从内置技能和 MCP 模板列表选择条目。
@@ -83,7 +86,7 @@
     4. 对未知模板返回清晰 `KeyError`，不要静默忽略。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_template_library.py -q --no-cov` 通过。
 
-- [ ] **OPT-2.2 支持用户向模板库追加技能或 MCP 条目**
+- [x] **OPT-2.2 支持用户向模板库追加技能或 MCP 条目**
   - 优先级：P1
   - 依赖：`OPT-2.1`
   - 目标：允许项目配置目录下的模板覆盖或扩展内置技能/MCP 列表。
@@ -95,7 +98,7 @@
     4. 单测覆盖新增模板、覆盖内置模板、非法 kind、无效 JSON。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_project_template_library.py tests/unit/test_template_library.py -q --no-cov` 通过。
 
-- [ ] **OPT-2.3 支持不同代理类型基于配置选择技能和 MCP**
+- [x] **OPT-2.3 支持不同代理类型基于配置选择技能和 MCP**
   - 优先级：P1
   - 依赖：`OPT-1.2`、`OPT-2.2`
   - 目标：让用户创建的角色和管理器创建的角色，都能从当前技能/MCP 模板列表中选择。
@@ -107,7 +110,7 @@
     4. 单测覆盖用户 profile、默认 profile、管理器临时 profile、缺失模板失败。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_agent_registry.py -q --no-cov` 通过。
 
-- [ ] **OPT-2.4 实现运行时提示注入和上下文预算策略**
+- [x] **OPT-2.4 实现运行时提示注入和上下文预算策略**
   - 优先级：P1
   - 依赖：`OPT-2.3`
   - 目标：把 agent `.md` 正文、技能/MCP prompt snippet 和项目地图摘要组合成运行时提示，同时减少低价值上下文占用。
@@ -122,7 +125,7 @@
 
 ### P1：管理者任务 JSON、确认流程、工作目录和通信
 
-- [ ] **OPT-3.1 定义已验证任务 JSON schema**
+- [x] **OPT-3.1 定义已验证任务 JSON schema**
   - 优先级：P1
   - 依赖：`OPT-1.1`
   - 目标：让管理者角色可以把工作拆成可验证、可分配、可审阅的任务 JSON。
@@ -134,7 +137,7 @@
     4. 校验 `verification` 不能为空，确保每个任务可验收。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_task_plan_models.py -q --no-cov` 通过。
 
-- [ ] **OPT-3.2 升级 ManagerRole 生成已验证任务 JSON**
+- [x] **OPT-3.2 升级 ManagerRole 生成已验证任务 JSON**
   - 优先级：P1
   - 依赖：`OPT-3.1`、`OPT-2.3`
   - 目标：管理者角色输出 `TaskPlan`，而不是只返回松散 subtasks。
@@ -146,7 +149,7 @@
     4. 没有 verification 的输入自动生成 `pytest` 或人工验收说明，具体规则写入测试。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/roles/test_manager_role.py tests/unit/test_task_plan_models.py -q --no-cov` 通过。
 
-- [ ] **OPT-3.3 添加任务 JSON 生成、审阅、编辑和确认 API**
+- [x] **OPT-3.3 添加任务 JSON 生成、审阅、编辑和确认 API**
   - 优先级：P1
   - 依赖：`OPT-3.2`
   - 目标：用 API/OpenAPI 作为当前仓库的 UI 流程，让用户检查和编辑生成的任务 JSON。
@@ -159,7 +162,7 @@
     5. 当前 prototype 可先使用内存存储，后续再接 PostgreSQL。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_api.py -q --no-cov` 通过；`docs/api.md` 包含四个新端点示例。
 
-- [ ] **OPT-3.4 支持临时角色/模板选择、用户确认和分配给特定代理**
+- [x] **OPT-3.4 支持临时角色/模板选择、用户确认和分配给特定代理**
   - 优先级：P1
   - 依赖：`OPT-3.3`
   - 目标：在确认前允许用户临时选择角色、模板和具体 assignee。
@@ -171,7 +174,7 @@
     4. `confirm` 时冻结最终 assignee 和模板选择。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_agent_selection_flow.py tests/unit/test_api.py -q --no-cov` 通过。
 
-- [ ] **OPT-3.5 确认代理后配置每个代理的工作目录**
+- [x] **OPT-3.5 确认代理后配置每个代理的工作目录**
   - 优先级：P1
   - 依赖：`OPT-3.4`
   - 目标：把确认后的 agent workdir 注入任务 metadata，并传递到 `SandboxConfig.workspace_root` 或 task-specific workspace。
@@ -183,7 +186,7 @@
     4. 单测覆盖 agent workdir 注入、非法路径拒绝、默认 workspace fallback。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_task_executor.py tests/unit/test_worker_sandbox.py -q --no-cov` 通过。
 
-- [ ] **OPT-3.6 明确子组件通信机制并接入事件发布**
+- [x] **OPT-3.6 明确子组件通信机制并接入事件发布**
   - 优先级：P1
   - 依赖：`OPT-3.3`
   - 目标：使用现有 EventBus/Redis Streams 作为子组件通信机制，避免角色之间直接互调。
@@ -197,7 +200,7 @@
 
 ### P2：定时任务、钩子和安装器
 
-- [ ] **OPT-4.1 定义钩子配置和事件触发点**
+- [x] **OPT-4.1 定义钩子配置和事件触发点**
   - 优先级：P2
   - 依赖：`OPT-3.6`
   - 目标：确定并实现是否支持钩子，先支持配置文件声明的 pre/post task-plan hooks 和 workflow hooks。
@@ -209,7 +212,7 @@
     4. hooks 执行失败时发布失败事件并阻止确认，除非配置 `allow_failure=true`。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_runtime_hooks.py tests/unit/test_api.py -q --no-cov` 通过。
 
-- [ ] **OPT-4.2 支持基于配置的定时任务**
+- [x] **OPT-4.2 支持基于配置的定时任务**
   - 优先级：P2
   - 依赖：`OPT-4.1`
   - 目标：确定并实现定时任务支持，优先提供内存调度和配置解析，不引入外部 scheduler 依赖。
@@ -221,7 +224,7 @@
     4. API 可增加 `GET /schedules` 查看已加载配置。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_scheduled_tasks.py tests/unit/test_runtime_factory.py -q --no-cov` 通过。
 
-- [ ] **OPT-5.1 设计一键安装范围和跨平台工作量估算**
+- [x] **OPT-5.1 设计一键安装范围和跨平台工作量估算**
   - 优先级：P2
   - 依赖：`OPT-1.3`
   - 目标：提供 Linux、Windows、macOS 的安装步骤和工作量估算，先文档化再写脚本。
@@ -233,7 +236,7 @@
     4. 文档明确一键安装不会自动启用 durable services，仍按环境变量 opt-in。
   - 验收：`docs/install.md` 包含三平台步骤、预计耗时、前置条件和失败回退；`git diff --check` 通过。
 
-- [ ] **OPT-5.2 实现一键安装脚本**
+- [x] **OPT-5.2 实现一键安装脚本**
   - 优先级：P2
   - 依赖：`OPT-5.1`
   - 目标：提供可重复执行的安装入口，减少本地环境启动成本。
@@ -245,7 +248,7 @@
     4. 支持 `--with-sandbox` 和 `--with-otel`，分别安装 `[sandbox]` 和 `[otel]` extras。
   - 验收：`.venv312\Scripts\python.exe -m pytest tests/unit/test_install_scripts.py -q --no-cov` 通过；`python scripts/install.py --dry-run --with-otel` 输出包含 editable install 命令。
 
-- [ ] **OPT-5.3 增加安装后的 smoke 验证命令**
+- [x] **OPT-5.3 增加安装后的 smoke 验证命令**
   - 优先级：P2
   - 依赖：`OPT-5.2`
   - 目标：安装脚本完成后可快速验证 API import、unit smoke 和可选 Docker 状态。
@@ -259,7 +262,7 @@
 
 ### P2：文档、验收和完整回归
 
-- [ ] **OPT-6.1 同步 README、TODO、AGENTS 和 API 文档**
+- [x] **OPT-6.1 同步 README、TODO、AGENTS 和 API 文档**
   - 优先级：P2
   - 依赖：`OPT-3.6`、`OPT-4.2`、`OPT-5.3`
   - 目标：让项目说明、API 文档、维护 caveat 和 TODO 状态与新功能一致。
@@ -271,7 +274,7 @@
     4. `docs/api.md` 补齐新 API 的请求/响应示例。
   - 验收：文档中不再把未实现能力写成已完成；`git diff --check` 通过。
 
-- [ ] **OPT-6.2 运行完整本地验证并生成完成报告**
+- [x] **OPT-6.2 运行完整本地验证并生成完成报告**
   - 优先级：P2
   - 依赖：`OPT-6.1`
   - 目标：在完成优化任务后留下可复核的本地验证证据，并区分本地成功与远端 CI 状态。

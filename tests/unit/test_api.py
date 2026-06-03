@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 from agentManager.api import app, dag_engine, state_machine, event_bus, scheduler
+import agentManager.api as api_module
+from agentManager.runtime.hooks import HookConfig, HookRunner
 
 
 @pytest.fixture
@@ -28,6 +30,8 @@ def reset_engines():
     scheduler.execution_queue.clear()
     scheduler.running_tasks.clear()
     scheduler.completed_tasks.clear()
+    api_module._task_plans.clear()
+    api_module.hook_runner = HookRunner()
     yield
 
 
@@ -713,3 +717,97 @@ class TestRedisURLMasking:
         from agentManager.engine.event_bus.redis_stream import _mask_url
 
         assert _mask_url("") == ""
+
+
+class TestTaskPlanReviewFlow:
+    def test_create_task_plan_rejects_duplicate_item_ids(self, client):
+        response = client.post(
+            "/task-plans",
+            json={
+                "plan_id": "plan-dup",
+                "items": [
+                    {"id": "item-1", "title": "First", "verification": "check first"},
+                    {"id": "item-1", "title": "Second", "verification": "check second"},
+                ],
+            },
+        )
+
+        assert response.status_code == 400
+        assert "Duplicate task plan item id" in response.json()["detail"]
+
+    def test_confirm_task_plan_runs_before_and_after_hooks(self, client, monkeypatch):
+        calls = []
+
+        class RecordingHookRunner:
+            def run_hooks(self, event, context=None):
+                calls.append((event, context))
+                return {}
+
+        monkeypatch.setattr(api_module, "hook_runner", RecordingHookRunner())
+        client.post(
+            "/task-plans",
+            json={
+                "plan_id": "plan-hook",
+                "source_task_id": "task-1",
+                "items": [
+                    {"id": "item-1", "title": "First", "verification": "check first"},
+                ],
+            },
+        )
+
+        response = client.post("/task-plans/plan-hook/confirm")
+
+        assert response.status_code == 200
+        assert [call[0] for call in calls] == [
+            "before_task_plan_confirm",
+            "after_task_plan_confirm",
+        ]
+        assert calls[0][1]["plan_id"] == "plan-hook"
+        assert calls[0][1]["source_task_id"] == "task-1"
+
+    def test_confirm_task_plan_blocks_when_before_hook_fails(self, client, monkeypatch):
+        failing_hook = HookConfig(
+            name="reject",
+            event="before_task_plan_confirm",
+            command="false",
+            enabled=True,
+        )
+        monkeypatch.setenv("HOOKS_ENABLED", "true")
+        monkeypatch.setattr(api_module, "hook_runner", HookRunner([failing_hook]))
+        client.post(
+            "/task-plans",
+            json={
+                "plan_id": "plan-fail-hook",
+                "items": [
+                    {"id": "item-1", "title": "First", "verification": "check first"},
+                ],
+            },
+        )
+
+        response = client.post("/task-plans/plan-fail-hook/confirm")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Task plan confirmation hook failed"
+        assert api_module._task_plans["plan-fail-hook"].status.value == "draft"
+        events = event_bus.get_events(event_type=api_module.EventType.TASK_PLAN_CONFIRM_FAILED)
+        assert len(events) == 1
+        assert events[0].payload["plan_id"] == "plan-fail-hook"
+
+    def test_create_task_plan_publishes_after_releasing_plan_lock(self, client):
+        def callback(_event):
+            assert api_module._task_plans_lock.acquire(blocking=False)
+            api_module._task_plans_lock.release()
+
+        event_bus.subscribe(api_module.EventType.TASK_PLAN_CREATED, callback)
+
+        response = client.post(
+            "/task-plans",
+            json={
+                "plan_id": "plan-lock",
+                "items": [
+                    {"id": "item-1", "title": "First", "verification": "check first"},
+                ],
+            },
+        )
+
+        assert response.status_code == 201

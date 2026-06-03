@@ -36,3 +36,43 @@ def test_manager_role_preserves_subtask_metadata() -> None:
     assert subtask["id"] == "repair.1"
     assert subtask["assignee"] == "worker"
     assert subtask["status"] == "pending"
+
+
+def test_manager_role_returns_task_plan_alongside_subtasks() -> None:
+    role = ManagerRole()
+    result = role.execute({"id": "feat", "subtasks": ["design", "implement", "test"]})
+    assert "task_plan" in result
+    assert "subtasks" in result
+    plan = result["task_plan"]
+    assert plan["plan_id"] == "plan-feat"
+    assert plan["source_task_id"] == "feat"
+    assert len(plan["items"]) == 3
+
+
+def test_task_plan_items_have_pending_review_status() -> None:
+    role = ManagerRole()
+    result = role.execute({"id": "t", "subtasks": ["a", "b"]})
+    plan = result["task_plan"]
+    for item in plan["items"]:
+        assert item["status"] == "pending_review"
+
+
+def test_task_plan_auto_generates_verification() -> None:
+    role = ManagerRole()
+    result = role.execute({"id": "t", "subtasks": ["build feature"]})
+    plan = result["task_plan"]
+    assert "build feature" in plan["items"][0]["verification"]
+
+
+def test_task_plan_preserves_explicit_verification() -> None:
+    role = ManagerRole()
+    result = role.execute(
+        {
+            "id": "t",
+            "subtasks": [
+                {"description": "build", "verification": "run specific test"},
+            ],
+        }
+    )
+    plan = result["task_plan"]
+    assert plan["items"][0]["verification"] == "run specific test"

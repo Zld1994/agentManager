@@ -3,31 +3,41 @@
 This module provides REST API endpoints for workflow and task management.
 """
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import Response
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Dict, Any
-from datetime import datetime, timezone
-from starlette.middleware.trustedhost import TrustedHostMiddleware
+import hmac
 import logging
 import os
-import time
 import re
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from agentManager.config.settings import get_auth_settings, get_durable_backend_settings
+from agentManager.domain.models import Event, EventType
 from agentManager.engine.dag import DAGNode, TaskStatus
 from agentManager.engine.state_manager import TaskState
-from agentManager.engine.event_bus import EventType, Event
 from agentManager.observability.logging import (
-    setup_logging,
+    clear_request_context,
     new_request_id,
     set_request_context,
-    clear_request_context,
+    setup_logging,
 )
-from agentManager.config.settings import get_auth_settings, get_durable_backend_settings
 from agentManager.observability.tracing import setup_tracing
 from agentManager.runtime.factory import configure_runtime_audit_sinks, create_runtime
+from agentManager.runtime.hooks import HookRunner
+
+# Deferred task plan imports (used after runtime initialisation)
+from agentManager.domain.task_plan import TaskPlan as _TaskPlan
+from agentManager.domain.task_plan import TaskPlanItem as _TaskPlanItem
+from agentManager.domain.task_plan import TaskPlanItemStatus as _TaskPlanItemStatus
+from agentManager.domain.task_plan import TaskPlanStatus as _TaskPlanStatus
 
 # Configure structured logging (JSON by default, respects LOG_LEVEL/LOG_JSON env)
 setup_logging()
@@ -124,6 +134,11 @@ state_machine = _runtime.state_machine
 event_bus = _runtime.event_bus
 scheduler = _runtime.scheduler
 
+# In-memory task plan storage (prototype) with thread-safe access
+_task_plans: Dict[str, _TaskPlan] = {}
+_task_plans_lock = threading.Lock()
+hook_runner = HookRunner()
+
 # ============================================================================
 # Prometheus Metrics
 # ============================================================================
@@ -166,7 +181,8 @@ def verify_token(request: Request):
             detail="Unauthorized",
         )
     token = auth_header[7:]
-    if token != _auth_settings["auth_token"]:
+    # Security: use constant-time comparison to prevent timing attacks
+    if not hmac.compare_digest(token, _auth_settings["auth_token"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Unauthorized",
@@ -287,6 +303,94 @@ class EventResponse(BaseModel):
     workflow_id: str
     payload: Dict[str, Any]
     timestamp: datetime
+
+
+class TaskPlanItemRequest(BaseModel):
+    """Request model for a task plan item."""
+
+    id: str = Field(..., min_length=1, description="Item ID")
+    title: str = Field(..., min_length=1, description="Item title")
+    description: str = ""
+    priority: int = Field(default=0, ge=0)
+    dependencies: List[str] = Field(default_factory=list)
+    assignee: str = ""
+    required_skills: List[str] = Field(default_factory=list)
+    workdir: str = ""
+    verification: str = ""
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("workdir")
+    @classmethod
+    def validate_workdir(cls, value: str) -> str:
+        """Reject absolute paths and parent traversal in workdir."""
+        if not value:
+            return value
+        if os.path.isabs(value):
+            raise ValueError("workdir must be relative, not absolute")
+        if ".." in Path(value).parts:
+            raise ValueError("workdir must not contain '..'")
+        return value
+
+
+class TaskPlanRequest(BaseModel):
+    """Request to create a task plan."""
+
+    plan_id: str = Field(..., min_length=1, max_length=128)
+    source_task_id: str = ""
+    items: List[TaskPlanItemRequest] = Field(..., min_length=1)
+    temporary_roles: List[str] = Field(default_factory=list)
+    selected_templates: List[str] = Field(default_factory=list)
+    preferred_assignees: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("plan_id")
+    @classmethod
+    def validate_plan_id(cls, value: str) -> str:
+        value = value.strip()
+        if not TASK_ID_PATTERN.fullmatch(value):
+            raise ValueError(
+                "must contain only letters, numbers, dots, colons, " "underscores, or hyphens"
+            )
+        return value
+
+
+class TaskPlanUpdateRequest(BaseModel):
+    """Request to update a task plan."""
+
+    items: Optional[List[TaskPlanItemRequest]] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class TaskPlanItemResponse(BaseModel):
+    """Response model for a task plan item."""
+
+    id: str
+    title: str
+    description: str = ""
+    priority: int = 0
+    dependencies: List[str] = []
+    assignee: str = ""
+    required_skills: List[str] = []
+    workdir: str = ""
+    verification: str = ""
+    status: str = "pending_review"
+    metadata: Dict[str, Any] = {}
+
+
+class TaskPlanResponse(BaseModel):
+    """Response model for a task plan."""
+
+    plan_id: str
+    source_task_id: str = ""
+    items: List[TaskPlanItemResponse]
+    created_by: str = "manager"
+    status: str = "draft"
+    temporary_roles: List[str] = []
+    selected_templates: List[str] = []
+    preferred_assignees: List[str] = []
+    created_at: datetime
+    updated_at: datetime
+    metadata: Dict[str, Any] = {}
 
 
 # ============================================================================
@@ -645,3 +749,342 @@ def fail_task(task_id: str, reason: str = "", _auth=Depends(verify_token)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal server error",
         )
+
+
+# ============================================================================
+# Task Plan Endpoints
+# ============================================================================
+
+
+def _plan_to_response(plan: _TaskPlan) -> TaskPlanResponse:
+    """Convert a TaskPlan dataclass to a TaskPlanResponse."""
+    return TaskPlanResponse(
+        plan_id=plan.plan_id,
+        source_task_id=plan.source_task_id,
+        items=[
+            TaskPlanItemResponse(
+                id=item.id,
+                title=item.title,
+                description=item.description,
+                priority=item.priority,
+                dependencies=item.dependencies,
+                assignee=item.assignee,
+                required_skills=item.required_skills,
+                workdir=item.workdir,
+                verification=item.verification,
+                status=(
+                    item.status.value
+                    if isinstance(item.status, _TaskPlanItemStatus)
+                    else item.status
+                ),
+                metadata=item.metadata,
+            )
+            for item in plan.items
+        ],
+        created_by=plan.created_by,
+        status=plan.status.value if isinstance(plan.status, _TaskPlanStatus) else plan.status,
+        temporary_roles=plan.temporary_roles,
+        selected_templates=plan.selected_templates,
+        preferred_assignees=plan.preferred_assignees,
+        created_at=plan.created_at,
+        updated_at=plan.updated_at,
+        metadata=plan.metadata,
+    )
+
+
+@app.post("/task-plans", status_code=status.HTTP_201_CREATED)
+def create_task_plan(
+    request: TaskPlanRequest,
+    _auth=Depends(verify_token),
+):
+    """Create a new task plan for review and confirmation."""
+    with _task_plans_lock:
+        if request.plan_id in _task_plans:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Task plan {request.plan_id} already exists",
+            )
+
+        try:
+            items = [
+                _TaskPlanItem(
+                    id=req.id,
+                    title=req.title,
+                    description=req.description,
+                    priority=req.priority,
+                    dependencies=req.dependencies,
+                    assignee=req.assignee,
+                    required_skills=req.required_skills,
+                    workdir=req.workdir,
+                    verification=req.verification,
+                    status=_TaskPlanItemStatus.PENDING_REVIEW,
+                    metadata=req.metadata,
+                )
+                for req in request.items
+            ]
+
+            plan = _TaskPlan(
+                plan_id=request.plan_id,
+                source_task_id=request.source_task_id,
+                items=items,
+                status=_TaskPlanStatus.DRAFT,
+                temporary_roles=request.temporary_roles,
+                selected_templates=request.selected_templates,
+                preferred_assignees=request.preferred_assignees,
+                metadata=request.metadata,
+            )
+            plan.validate_dependencies()
+
+            _task_plans[request.plan_id] = plan
+
+            response = _plan_to_response(plan)
+            event = Event(
+                event_type=EventType.TASK_PLAN_CREATED,
+                workflow_id=request.source_task_id or "default",
+                payload={"plan_id": request.plan_id, "items_count": len(items)},
+            )
+
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error creating task plan: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
+    event_bus.publish(event)
+    return response
+
+
+@app.get("/task-plans/{plan_id}")
+def get_task_plan(
+    plan_id: str,
+    _auth=Depends(verify_token),
+):
+    """Retrieve a task plan by ID."""
+    with _task_plans_lock:
+        if plan_id not in _task_plans:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task plan {plan_id} not found",
+            )
+        return _plan_to_response(_task_plans[plan_id])
+
+
+@app.put("/task-plans/{plan_id}")
+def update_task_plan(
+    plan_id: str,
+    request: TaskPlanUpdateRequest,
+    _auth=Depends(verify_token),
+):
+    """Update a task plan (items and metadata)."""
+    with _task_plans_lock:
+        if plan_id not in _task_plans:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task plan {plan_id} not found",
+            )
+
+        plan = _task_plans[plan_id]
+        plan_status = plan.status.value if isinstance(plan.status, _TaskPlanStatus) else plan.status
+        if plan_status == _TaskPlanStatus.CONFIRMED.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot update a confirmed task plan",
+            )
+
+        try:
+            if request.items is not None:
+                # Build a lookup of existing items by id to preserve statuses
+                existing_items = {item.id: item for item in plan.items}
+                new_items: list[_TaskPlanItem] = []
+                for req in request.items:
+                    # Preserve existing item status if the item id matches
+                    existing = existing_items.get(req.id)
+                    preserved_status = (
+                        existing.status
+                        if existing is not None
+                        else _TaskPlanItemStatus.PENDING_REVIEW
+                    )
+                    new_items.append(
+                        _TaskPlanItem(
+                            id=req.id,
+                            title=req.title,
+                            description=req.description,
+                            priority=req.priority,
+                            dependencies=req.dependencies,
+                            assignee=req.assignee,
+                            required_skills=req.required_skills,
+                            workdir=req.workdir,
+                            verification=req.verification,
+                            status=preserved_status,
+                            metadata=req.metadata,
+                        )
+                    )
+                plan.items = new_items
+                plan.validate_dependencies()
+
+            if request.metadata is not None:
+                plan.metadata = request.metadata
+
+            plan.updated_at = utc_now()
+
+            response = _plan_to_response(plan)
+            event = Event(
+                event_type=EventType.TASK_PLAN_UPDATED,
+                workflow_id=plan.source_task_id or "default",
+                payload={"plan_id": plan_id},
+            )
+
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating task plan: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
+    event_bus.publish(event)
+    return response
+
+
+@app.post("/task-plans/{plan_id}/confirm")
+def confirm_task_plan(
+    plan_id: str,
+    _auth=Depends(verify_token),
+):
+    """Confirm a task plan, transitioning all items to confirmed status."""
+    with _task_plans_lock:
+        if plan_id not in _task_plans:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task plan {plan_id} not found",
+            )
+
+        plan = _task_plans[plan_id]
+        plan_status = plan.status.value if isinstance(plan.status, _TaskPlanStatus) else plan.status
+        if plan_status == _TaskPlanStatus.CONFIRMED.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Task plan is already confirmed",
+            )
+
+        try:
+            plan.validate_dependencies()
+            plan.validate_verification()
+            hook_context = {
+                "plan_id": plan_id,
+                "source_task_id": plan.source_task_id or "",
+                "items_count": str(len(plan.items)),
+            }
+
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error confirming task plan: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
+
+    try:
+        hook_runner.run_hooks("before_task_plan_confirm", hook_context)
+    except Exception as e:
+        logger.error("Task plan confirmation hook failed: %s", e)
+        event_bus.publish(
+            Event(
+                event_type=EventType.TASK_PLAN_CONFIRM_FAILED,
+                workflow_id=hook_context["source_task_id"] or "default",
+                payload={"plan_id": plan_id, "reason": str(e)},
+            )
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Task plan confirmation hook failed",
+        )
+
+    with _task_plans_lock:
+        plan = _task_plans.get(plan_id)
+        if plan is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task plan {plan_id} not found",
+            )
+
+        plan_status = plan.status.value if isinstance(plan.status, _TaskPlanStatus) else plan.status
+        if plan_status == _TaskPlanStatus.CONFIRMED.value:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Task plan is already confirmed",
+            )
+
+        try:
+            plan.validate_dependencies()
+            plan.validate_verification()
+
+            plan.status = _TaskPlanStatus.CONFIRMED
+            for item in plan.items:
+                if item.status == _TaskPlanItemStatus.PENDING_REVIEW:
+                    item.status = _TaskPlanItemStatus.CONFIRMED
+                # Inject agent_id, workdir, and plan_id into item metadata
+                # only if not already set by the user
+                if item.assignee:
+                    item.metadata.setdefault("agent_id", item.assignee)
+                if item.workdir:
+                    item.metadata.setdefault("workdir", item.workdir)
+                item.metadata.setdefault("plan_id", plan_id)
+            plan.updated_at = utc_now()
+
+            response = _plan_to_response(plan)
+            confirmed_event = Event(
+                event_type=EventType.TASK_PLAN_CONFIRMED,
+                workflow_id=plan.source_task_id or "default",
+                payload={
+                    "plan_id": plan_id,
+                    "items_count": len(plan.items),
+                    "assignees": list({item.assignee for item in plan.items if item.assignee}),
+                },
+            )
+
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error confirming task plan: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Internal server error",
+            )
+
+    event_bus.publish(confirmed_event)
+    try:
+        hook_runner.run_hooks("after_task_plan_confirm", hook_context)
+    except Exception as e:
+        logger.error("Task plan post-confirm hook failed: %s", e)
+        event_bus.publish(
+            Event(
+                event_type=EventType.TASK_PLAN_CONFIRM_FAILED,
+                workflow_id=hook_context["source_task_id"] or "default",
+                payload={"plan_id": plan_id, "reason": str(e)},
+            )
+        )
+    return response

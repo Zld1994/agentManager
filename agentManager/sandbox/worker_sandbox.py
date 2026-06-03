@@ -9,6 +9,7 @@ Provides:
 """
 
 import logging
+import os
 import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from pathlib import Path
@@ -63,6 +64,7 @@ class SandboxConfig:
     network_mode: str = "none"
     pids_limit: int = 256
     read_only_rootfs: bool = True
+    workdir: str = ""
 
     @property
     def task_workspace_path(self) -> Path:
@@ -72,6 +74,19 @@ class SandboxConfig:
         self._validate_path_component(task_id, "task_id")
         root = Path(self.workspace_root).resolve()
         workspace = (root / self.worker_id / task_id).resolve()
+
+        if self.workdir:
+            workdir_path = Path(self.workdir)
+            if (
+                os.path.isabs(self.workdir)
+                or workdir_path.is_absolute()
+                or self.workdir.startswith(os.path.sep)
+                or self.workdir.startswith("/")
+            ):
+                raise ValueError("workdir must be relative, not absolute")
+            if ".." in workdir_path.parts:
+                raise ValueError("workdir must not contain '..'")
+            workspace = (workspace / workdir_path).resolve()
 
         if not workspace.is_relative_to(root):
             raise ValueError("Resolved task workspace escapes workspace root")

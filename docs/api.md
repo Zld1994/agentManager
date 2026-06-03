@@ -348,6 +348,195 @@ curl -X POST http://localhost:8000/tasks/task_1/fail
 
 ---
 
+### Task Plan Management
+
+#### POST /task-plans
+
+Create a task decomposition plan from a source task. Validates duplicate item IDs
+and item dependencies within the plan, then publishes a `task_plan_created` event
+after the in-memory plan lock is released.
+
+**Request**:
+```bash
+curl -X POST http://localhost:8000/task-plans \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plan_id": "plan-1",
+    "source_task_id": "task-1",
+    "items": [
+      {
+        "id": "item-1",
+        "title": "Implement feature X",
+        "verification": "Run pytest tests/unit/test_x.py"
+      },
+      {
+        "id": "item-2",
+        "title": "Review implementation",
+        "dependencies": ["item-1"],
+        "verification": "Code review passed"
+      }
+    ]
+  }'
+```
+
+**Request Body**:
+```json
+{
+  "plan_id": "string (required, unique)",
+  "source_task_id": "string (required)",
+  "items": [
+    {
+      "id": "string (required)",
+      "title": "string (required)",
+      "verification": "string (required)",
+      "description": "string (optional)",
+      "dependencies": ["string"] (optional),
+      "assignee": "string (optional, agent_id)",
+      "required_skills": ["string"] (optional),
+      "workdir": "string (optional, relative path)"
+    }
+  ]
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "plan_id": "plan-1",
+  "source_task_id": "task-1",
+  "status": "draft",
+  "items": [
+    {
+      "id": "item-1",
+      "title": "Implement feature X",
+      "status": "pending_review",
+      "verification": "Run pytest tests/unit/test_x.py",
+      "dependencies": []
+    },
+    {
+      "id": "item-2",
+      "title": "Review implementation",
+      "status": "pending_review",
+      "verification": "Code review passed",
+      "dependencies": ["item-1"]
+    }
+  ]
+}
+```
+
+**Error Responses**:
+- 400 Bad Request: Plan already exists, item IDs are duplicated, or dependency references unknown item
+
+---
+
+#### GET /task-plans/{plan_id}
+
+Retrieve a task plan for review.
+
+**Request**:
+```bash
+curl http://localhost:8000/task-plans/plan-1
+```
+
+**Response** (200 OK):
+```json
+{
+  "plan_id": "plan-1",
+  "status": "draft",
+  "items": [...]
+}
+```
+
+**Error Responses**:
+- 404 Not Found: Plan does not exist
+
+---
+
+#### PUT /task-plans/{plan_id}
+
+Edit task plan items, assignees, skills, or relative workdir. Blocked once plan is confirmed.
+
+**Request**:
+```bash
+curl -X PUT http://localhost:8000/task-plans/plan-1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "items": [
+      {
+        "id": "item-1",
+        "title": "Updated title",
+        "assignee": "agent-worker-1",
+        "verification": "Run updated test suite"
+      }
+    ]
+  }'
+```
+
+**Response** (200 OK):
+```json
+{
+  "plan_id": "plan-1",
+  "status": "draft",
+  "items": [
+    {
+      "id": "item-1",
+      "title": "Updated title",
+      "assignee": "agent-worker-1",
+      "status": "pending_review"
+    }
+  ]
+}
+```
+
+**Error Responses**:
+- 404 Not Found: Plan does not exist
+- 400 Bad Request: Item IDs are duplicated, workdir is absolute/unsafe, or dependency references unknown item
+- 409 Conflict: Plan already confirmed, edits are frozen
+
+---
+
+#### POST /task-plans/{plan_id}/confirm
+
+Freeze the task plan, validate all item verifications and dependencies, run
+`before_task_plan_confirm` / `after_task_plan_confirm` hooks, and publish a
+`task_plan_confirmed` event. Task-plan events are published after the plan lock is
+released so synchronous event subscribers cannot deadlock the API path.
+
+If a blocking `before_task_plan_confirm` hook fails, the plan remains in `draft`
+state and the API publishes a `task_plan_confirm_failed` event.
+
+**Request**:
+```bash
+curl -X POST http://localhost:8000/task-plans/plan-1/confirm
+```
+
+**Response** (200 OK):
+```json
+{
+  "plan_id": "plan-1",
+  "status": "confirmed",
+  "items": [
+    {
+      "id": "item-1",
+      "status": "confirmed",
+      "assignee": "agent-worker-1",
+      "metadata": {
+        "agent_id": "agent-worker-1",
+        "plan_id": "plan-1"
+      }
+    }
+  ]
+}
+```
+
+**Error Responses**:
+- 400 Bad Request: Item missing verification, or dependency references unknown item
+- 404 Not Found: Plan does not exist
+- 409 Conflict: Plan already confirmed
+- 500 Internal Server Error: Blocking confirmation hook failed
+
+---
+
 ## Status Codes
 
 | Code | Meaning |
@@ -356,6 +545,7 @@ curl -X POST http://localhost:8000/tasks/task_1/fail
 | 201 | Created - Resource created successfully |
 | 400 | Bad Request - Invalid input or validation error |
 | 404 | Not Found - Resource does not exist |
+| 409 | Conflict - Resource state conflict (e.g., plan already confirmed) |
 | 500 | Internal Server Error - Server error |
 
 ---

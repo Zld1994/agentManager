@@ -1,6 +1,7 @@
 """Unit tests for Event Bus."""
 
-from agentManager.engine.event_bus import Event, EventBus, EventType
+from agentManager.domain.models import Event, EventType
+from agentManager.engine.event_bus import EventBus
 
 
 class TestEventBus:

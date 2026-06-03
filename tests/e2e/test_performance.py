@@ -9,7 +9,7 @@ import pytest
 
 from agentManager.engine.checkpoint import load_checkpoint_with_recovery, safe_extract
 from agentManager.engine.dag import DAGNode, TaskStatus
-from agentManager.engine.event_bus import Event, EventType
+from agentManager.domain.models import Event, EventType
 from agentManager.engine.state_manager import TaskState
 
 

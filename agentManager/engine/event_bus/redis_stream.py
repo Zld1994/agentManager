@@ -119,6 +119,11 @@ class RedisStreamEventBus(BaseEventBus):
                 "timestamp": event.timestamp.isoformat(),
                 "payload": json.dumps(event.payload),
             }
+            # Include optional fields if present so they survive round-trips
+            for key in ("task_id", "run_id", "agent_id", "worker_id"):
+                value = getattr(event, key, None)
+                if value is not None:
+                    event_data[key] = value
 
             message_id = await self.redis_client.xadd(self.stream_key, event_data)
             logger.info(
@@ -262,7 +267,10 @@ class RedisStreamEventBus(BaseEventBus):
                 self._retry_counts.pop(message_id, None)
 
     def _deserialize_event(self, data: Dict[str, str]) -> Event:
-        """Deserialize event from Redis data.
+        """Deserialize event from Redis data using Event.from_dict.
+
+        Uses the domain model's ``from_dict`` to stay in sync with
+        field additions and type coercion logic.
 
         Args:
             data: Raw data from Redis
@@ -270,13 +278,18 @@ class RedisStreamEventBus(BaseEventBus):
         Returns:
             Deserialized Event object
         """
-        return Event(
-            event_type=EventType(data["event_type"]),
-            workflow_id=data["workflow_id"],
-            event_id=data["event_id"],
-            timestamp=datetime.fromisoformat(data["timestamp"]),
-            payload=json.loads(data.get("payload", "{}")),
-        )
+        event_data: Dict[str, Any] = {
+            "event_type": data["event_type"],
+            "workflow_id": data["workflow_id"],
+            "event_id": data["event_id"],
+            "timestamp": data["timestamp"],
+            "payload": json.loads(data.get("payload", "{}")),
+        }
+        # Preserve optional fields if present in the stream data
+        for key in ("task_id", "run_id", "agent_id", "worker_id"):
+            if key in data:
+                event_data[key] = data[key]
+        return Event.from_dict(event_data)
 
     async def _move_to_dlq(
         self,

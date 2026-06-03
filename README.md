@@ -14,8 +14,14 @@ agentManager 是一个 AI Agent 控制平面的原型实现。它提供了任务
 - Task state machine with emergency transitions
 - Event bus with wildcard subscriptions
 - Scheduler with conflict detection and backoff
-- FastAPI REST API (7 endpoints)
-- 66 unit tests (100% passing)
+- FastAPI REST API (12+ endpoints)
+- Task plan CRUD with agent assignment, duplicate/dependency validation, confirm hooks, and event publication
+- Agent profile system with high/low layers, skills, MCP servers, and relative workdir policy
+- Built-in skill/MCP template library with project-level override support
+- Runtime hooks subsystem (opt-in via HOOKS_ENABLED=true)
+- Scheduled task runner with asyncio-based dispatch
+- Cross-platform install script (scripts/install.py) with --dry-run / --verify modes
+- 902+ unit tests (100% passing)
 - Opt-in durable backend interfaces for PostgreSQL state, S3-compatible checkpoints,
   Redis Streams retries, and pluggable vector memory
 
@@ -41,6 +47,20 @@ pip install -e .
 # Install dev dependencies (optional)
 pip install -e ".[dev]"
 ```
+
+**One-click install** (cross-platform):
+```bash
+# Dry-run to preview commands
+python scripts/install.py --dry-run
+
+# Full install with dev, sandbox, and OTEL extras
+python scripts/install.py --with-sandbox --with-otel
+
+# Install and verify
+python scripts/install.py --verify --verify-tests
+```
+
+See [docs/install.md](docs/install.md) for platform-specific instructions.
 
 ### Run Tests
 ```bash
@@ -315,6 +335,56 @@ Mark task as failed.
 **Errors**:
 - 404: Task not found
 - 500: State transition error
+
+### Task Plan Management
+
+#### POST /task-plans
+Create a task plan with decomposition items, duplicate item ID checks, dependency validation,
+and agent assignment.
+
+**Request Body**:
+```json
+{
+  "plan_id": "plan-1",
+  "source_task_id": "task-1",
+  "items": [
+    {
+      "id": "item-1",
+      "title": "First item",
+      "verification": "run tests"
+    }
+  ]
+}
+```
+
+**Response** (201 Created):
+```json
+{
+  "plan_id": "plan-1",
+  "status": "draft",
+  "items": [{"id": "item-1", "status": "pending_review", ...}]
+}
+```
+
+#### GET /task-plans/{plan_id}
+Retrieve a task plan for review.
+
+#### PUT /task-plans/{plan_id}
+Edit task plan items, assignees, skills, or relative workdir values. Blocked after confirm.
+
+#### POST /task-plans/{plan_id}/confirm
+Freeze the plan, validate dependencies/verification, run `before_task_plan_confirm` and
+`after_task_plan_confirm` hooks, and publish task-plan events outside the in-memory plan lock.
+A failing blocking before-hook leaves the plan in draft state and emits a confirm-failed event.
+
+**Response** (200 OK):
+```json
+{
+  "plan_id": "plan-1",
+  "status": "confirmed",
+  "items": [{"id": "item-1", "status": "confirmed", ...}]
+}
+```
 
 ---
 

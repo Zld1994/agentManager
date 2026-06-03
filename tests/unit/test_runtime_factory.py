@@ -240,6 +240,8 @@ class TestCreateRuntime:
         assert runtime.state_machine is not None
         assert runtime.event_bus is not None
         assert runtime.scheduler is not None
+        assert runtime.scheduled_task_runner is not None
+        assert runtime.scheduled_task_runner._running is False
         assert runtime.checkpoint_manager is not None
         assert runtime.state_machine.repository is None
         if runtime.memory_system is not None:

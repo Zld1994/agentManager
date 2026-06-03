@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from agentManager.domain.task_plan import TaskPlan
 from agentManager.roles.base import BaseRole
 
 
@@ -29,11 +30,15 @@ class ManagerRole(BaseRole):
             for index, subtask in enumerate(raw_subtasks, start=1)
         ]
 
+        enriched = [self._enrich_subtask_for_plan(st) for st in subtasks]
+        task_plan = TaskPlan.from_subtasks(task_id, enriched)
+
         return {
             "role": self.name,
             "task_id": task_id,
             "status": "decomposed",
             "subtasks": subtasks,
+            "task_plan": task_plan.to_dict(),
         }
 
     def _normalize_subtask(
@@ -53,3 +58,14 @@ class ManagerRole(BaseRole):
             "description": str(subtask),
             "status": "pending",
         }
+
+    def _enrich_subtask_for_plan(self, subtask: Dict[str, Any]) -> Dict[str, Any]:
+        """Add task-plan-specific fields with defaults if missing."""
+        enriched = subtask.copy()
+        enriched.setdefault("title", enriched.get("description", enriched["id"]))
+        enriched.setdefault("priority", 0)
+        enriched.setdefault("required_skills", [])
+        enriched.setdefault("workdir", "")
+        title = enriched["title"]
+        enriched.setdefault("verification", f"Verify {title} output is correct")
+        return enriched

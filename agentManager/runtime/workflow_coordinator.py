@@ -17,6 +17,7 @@ from agentManager.memory.memory_backend import MemoryBackend
 from agentManager.observability.tracing import trace_operation
 from agentManager.recovery.recovery_context import RecoveryContext, RecoveryStrategy, FailureType
 from agentManager.runtime.execution_context import ExecutionContext, ExecutionStatus
+from agentManager.runtime.hooks import HookRunner
 from agentManager.runtime.task_executor import TaskExecutor
 from agentManager.observability.tracing import trace_workflow, create_span
 
@@ -48,6 +49,7 @@ class WorkflowCoordinator:
         max_iterations: int = 1000,
         allow_defect_repair: bool = True,
         memory_backend: Optional[MemoryBackend] = None,
+        hook_runner: Optional[HookRunner] = None,
     ) -> None:
         self.dag_engine = dag_engine
         self.scheduler = scheduler
@@ -58,6 +60,7 @@ class WorkflowCoordinator:
         self.max_iterations = max_iterations
         self.allow_defect_repair = allow_defect_repair
         self.memory_backend = memory_backend
+        self.hook_runner = hook_runner
 
     async def run_workflow(self, workflow_id: str) -> WorkflowRunResult:
         with trace_workflow(workflow_id):
@@ -71,6 +74,12 @@ class WorkflowCoordinator:
             task_count=len(self.dag_engine.nodes),
         ) as span:
             self._register_missing_tasks()
+
+            if self.hook_runner:
+                self.hook_runner.run_hooks(
+                    "before_workflow_run", {"workflow_id": workflow_id}
+                )
+
             await self._publish(
                 EventType.WORKFLOW_STARTED,
                 workflow_id,
@@ -136,6 +145,18 @@ class WorkflowCoordinator:
                     "task_count": len(self.scheduler.tasks),
                 },
             )
+
+            if self.hook_runner:
+                self.hook_runner.run_hooks(
+                    "after_workflow_run",
+                    {
+                        "workflow_id": workflow_id,
+                        "success": str(success),
+                        "completed_count": str(len(result.completed_tasks)),
+                        "failed_count": str(len(result.failed_tasks)),
+                    },
+                )
+
             span.set_attribute("success", success)
             return result
 

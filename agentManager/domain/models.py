@@ -136,6 +136,11 @@ class EventType(str, Enum):
     WORKER_REGISTERED = "worker_registered"
     ARTIFACT_CREATED = "artifact_created"
     CHECKPOINT_SAVED = "checkpoint_saved"
+    TASK_PLAN_CREATED = "task_plan_created"
+    TASK_PLAN_UPDATED = "task_plan_updated"
+    TASK_PLAN_CONFIRMED = "task_plan_confirmed"
+    TASK_PLAN_CONFIRM_FAILED = "task_plan_confirm_failed"
+    AGENT_ASSIGNED = "agent_assigned"
 
 
 @dataclass

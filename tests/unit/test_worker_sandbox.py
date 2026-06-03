@@ -122,6 +122,38 @@ class TestSandboxConfig:
         with pytest.raises(ValueError, match="outside task workspace"):
             config.validate_policy()
 
+    def test_config_with_subdir_workdir(self):
+        """Test workdir extends the per-task workspace."""
+        config = SandboxConfig(
+            worker_id="worker-1",
+            task_id="task-42",
+            workspace_root=TEST_WORKSPACE_ROOT,
+            workdir="custom-subdir",
+        )
+        workspace = config.task_workspace_path
+        expected = (TEST_WORKSPACE_ROOT / "worker-1" / "task-42" / "custom-subdir").resolve()
+        assert workspace == expected
+
+    def test_config_rejects_absolute_workdir(self):
+        """Test absolute workdir is rejected."""
+        import os
+        abs_workdir = os.path.join(os.path.sep, "absolute", "path")
+        with pytest.raises(ValueError, match="workdir must be relative"):
+            SandboxConfig(
+                worker_id="worker-1",
+                task_id="task-42",
+                workdir=abs_workdir,
+            )
+
+    def test_config_rejects_workdir_with_parent_traversal(self):
+        """Test workdir with '..' is rejected."""
+        with pytest.raises(ValueError, match="workdir must not contain"):
+            SandboxConfig(
+                worker_id="worker-1",
+                task_id="task-42",
+                workdir="../escape",
+            )
+
 
 class TestContainerCreation:
     """Test container creation with security hardening."""

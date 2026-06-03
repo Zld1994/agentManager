@@ -3,48 +3,13 @@
 This module provides an in-memory event bus for task lifecycle events.
 """
 
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import Dict, List, Callable, Optional
-from datetime import datetime, timezone
 import logging
-import uuid
+from typing import Callable, Dict, List, Optional
 
+from agentManager.domain.models import Event, EventType
 from agentManager.observability.logging import get_correlation_id
 
 logger = logging.getLogger(__name__)
-
-
-def utc_now() -> datetime:
-    """Return a timezone-aware UTC timestamp."""
-    return datetime.now(timezone.utc)
-
-
-class EventType(str, Enum):
-    """Task event types."""
-
-    TASK_CREATED = "task_created"
-    TASK_STARTED = "task_started"
-    TASK_COMPLETED = "task_completed"
-    TASK_FAILED = "task_failed"
-    TASK_BLOCKED = "task_blocked"
-    WORKFLOW_STARTED = "workflow_started"
-    WORKFLOW_COMPLETED = "workflow_completed"
-    WORKFLOW_FAILED = "workflow_failed"
-
-
-@dataclass
-class Event:
-    """Represents a task event."""
-
-    event_type: EventType
-    workflow_id: str
-    payload: Dict = field(default_factory=dict)
-    event_id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    timestamp: datetime = field(default_factory=utc_now)
-
-    def __hash__(self):
-        return hash(self.event_id)
 
 
 class EventBus:

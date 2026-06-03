@@ -7,7 +7,7 @@ name = "agentManager"
 version = "0.1.0"
 description = "AI Agent Orchestration Control Plane Prototype"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.14"
 authors = [
     {name = "Zld1994", email = "649077883@qq.com"}
 ]

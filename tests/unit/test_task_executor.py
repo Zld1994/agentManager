@@ -10,19 +10,18 @@ Comprehensive test suite for the TaskExecutor class covering:
 
 import pytest
 
-from agentManager.runtime.task_executor import (
-    TaskExecutor,
-    CheckpointManager,
-    WorkerSandbox,
-)
+from agentManager.engine.dag import DAGEngine, DAGNode
+from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
+from agentManager.engine.scheduler import SchedulerEngine
+from agentManager.engine.state_manager import StateMachine, TaskState
 from agentManager.runtime.execution_context import (
     ExecutionContext,
     ExecutionStatus,
 )
-from agentManager.engine.dag import DAGEngine, DAGNode
-from agentManager.engine.scheduler import SchedulerEngine
-from agentManager.engine.event_bus.base import BaseEventBus, Event, EventType
-from agentManager.engine.state_manager import StateMachine, TaskState
+from agentManager.runtime.task_executor import (
+    CheckpointManager,
+    TaskExecutor,
+)
 
 
 class MockCheckpointManager(CheckpointManager):
@@ -46,8 +45,12 @@ class MockCheckpointManager(CheckpointManager):
             del self.checkpoints[task_id]
 
 
-class MockWorkerSandbox(WorkerSandbox):
-    """Mock worker sandbox for testing."""
+class MockWorkerSandbox:
+    """Mock worker sandbox for testing.
+
+    Implements the same execute/verify interface as WorkerSandbox
+    without inheriting from it, avoiding Docker import side effects.
+    """
 
     def __init__(self, should_fail: bool = False, verify_fails: bool = False):
         """Initialize mock sandbox.
@@ -704,3 +707,34 @@ class TestExecutionContextData:
         assert data["status"] == "completed"
         assert data["result"] == {"result": "success"}
         assert data["duration"] is not None
+
+
+class TestAgentWorkdirMetadata:
+    """Test agent_id and workdir metadata passthrough."""
+
+    @pytest.mark.asyncio
+    async def test_agent_id_and_workdir_in_context_metadata(self, task_executor):
+        """Verify agent_id and workdir from task metadata appear in execution context."""
+        task = DAGNode(
+            node_id="task_with_agent",
+            task_type="test_task",
+            metadata={
+                "workflow_id": "workflow_1",
+                "agent_id": "worker",
+                "workdir": "task-42-workspace",
+                "plan_id": "plan-1",
+            },
+        )
+        await task_executor.run_task(task)
+        context = task_executor.get_execution_context("task_with_agent")
+        assert context.metadata["agent_id"] == "worker"
+        assert context.metadata["workdir"] == "task-42-workspace"
+        assert context.metadata["plan_id"] == "plan-1"
+
+    @pytest.mark.asyncio
+    async def test_default_workdir_fallback(self, task_executor, sample_task):
+        """Test that workflow proceeds when agent_id/workdir are not set."""
+        await task_executor.run_task(sample_task)
+        context = task_executor.get_execution_context("task_1")
+        assert "agent_id" not in context.metadata
+        # Should still complete successfully

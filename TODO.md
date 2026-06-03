@@ -1,4 +1,11 @@
 # 待办事项
+
+## 当前同步状态 (2026-06-03)
+
+- `taskList.md` 中的 `OPT-*` 优化任务已全部完成，旧的优化问题清单仅保留为历史记录。
+- 本次代码审查发现的 task-plan 确认钩子、确认失败事件、重复 item ID 校验、锁外事件发布、相对 workdir 约束、RuntimeFactory scheduled runner 创建，以及安装脚本 extras 组合规则均已修复。
+- 本地最新验证命令：`py -3.12 -m pytest tests/unit -q --no-cov`、`py -3.12 -m flake8 agentManager tests/unit --max-line-length=100 --jobs=1`、`git diff --check`。
+- 推送后仍需查看新的 GitHub Actions run，确认远端 Python 3.10/3.11/3.12、Docker verify 和 sandbox integration job 状态。
 ## CI 修复记录 (2026-06-02)
 
 - 已修复 GitHub Actions coverage 阈值失败：本地 unit coverage 为 82%，`coverage report --fail-under=80` 通过。

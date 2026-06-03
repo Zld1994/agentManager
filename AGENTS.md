@@ -12,8 +12,10 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 ## Repository Layout
 
 - `agentManager/api.py`: FastAPI application and REST endpoints.
+- `agentManager/agents/`: agent profile defaults, registry, prompt builder, and skill/MCP template library.
+- `agentManager/config/`: project-level agent profile loader (markdown front-matter).
 - `agentManager/domain/`: shared dataclass/enums for workflows, tasks, runs, agents, workers,
-  artifacts, checkpoints, and events.
+  artifacts, checkpoints, events, agent config, and task plans.
 - `agentManager/engine/`: DAG, scheduler, state manager, checkpointing, and event bus code.
 - `agentManager/engine/event_bus/`: async event bus abstractions and in-memory/Redis implementations.
 - `agentManager/memory/`: profile/session, project, engineering memory, and vector-search backend
@@ -23,14 +25,17 @@ The project is still a prototype. Prefer small, well-tested changes over broad r
 - `agentManager/storage/`: durable repository and object-store interfaces for PostgreSQL state
   persistence and S3-compatible checkpoint storage.
 - `agentManager/recovery/`: recovery context, error classification, and recovery engine.
-- `agentManager/runtime/`: task execution context, task executor, and workflow coordination helpers.
+- `agentManager/runtime/`: task execution context, task executor, workflow coordination helpers,
+  hooks subsystem, and scheduled task runner.
 - `agentManager/sandbox/`: worker guard and sandbox execution helpers.
 - `agentManager/defect_repair/`: canonical in-package defect repair implementation.
 - `scheduler/`: top-level scheduler/resource-manager package.
-- `tests/unit/`: focused unit tests.
+- `scripts/`: install scripts (`install.py`, `install.sh`, `install.ps1`).
+- `tests/unit/`: focused unit tests (902+ tests).
 - `tests/e2e/`: end-to-end and performance tests.
 - `tests/benchmarks/`: benchmark runner, report generation, and benchmark tests.
 - `docs/api.md`: REST API documentation.
+- `docs/install.md`: Platform-specific installation guide.
 - `docs/reports/`: archived reports plus the CI-backed verification report template.
 
 ## Setup
@@ -117,9 +122,24 @@ Generate a local verification summary artifact when updating report tooling:
 python scripts/collect_ci_status.py --output .test-artifacts/verification-summary.md
 ```
 
+Run agent/task-plan focused tests:
+
+```bash
+pytest tests/unit/test_agent_config_models.py tests/unit/test_task_plan_models.py -v
+pytest tests/unit/test_agent_registry.py tests/unit/test_agent_prompt_builder.py -v
+pytest tests/unit/test_runtime_hooks.py tests/unit/test_scheduled_tasks.py -v
+```
+
+Run install script dry-run / verify:
+
+```bash
+python scripts/install.py --dry-run --with-sandbox --with-otel
+python scripts/install.py --verify --verify-tests
+```
+
 ## Coding Guidelines
 
-- Keep Python compatibility at `>=3.10`.
+- Keep Python compatibility at `>=3.10,<3.14` (upper bound excludes 3.14+ until dependency wheels are verified).
 - Follow the existing style: dataclasses and enums for core domain models, Pydantic v2 models
   for API request/response validation, and explicit exception handling around API boundaries.
 - Use timezone-aware UTC timestamps. Existing modules commonly define `utc_now()` with
@@ -184,6 +204,17 @@ python scripts/collect_ci_status.py --output .test-artifacts/verification-summar
   the target of the task.
 - This repository may have local uncommitted changes. Inspect `git status --short` before editing,
   and do not revert unrelated user changes.
+- Runtime hooks (`agentManager/runtime/hooks.py`) are disabled by default. Set `HOOKS_ENABLED=true`
+  to execute shell command hooks. Task-plan confirmation runs before/after hooks outside the
+  in-memory plan lock; blocking before-hook failures keep the plan in draft state and publish a
+  confirm-failed event. Hook timeout tests mock `subprocess.run` for cross-platform safety.
+- Scheduled tasks (`agentManager/runtime/scheduled_tasks.py`) use asyncio. RuntimeFactory creates
+  a runner, but callers must `await runner.start()` explicitly.
+- Agent config profiles (`agentManager/config/agent_profiles.py`) load `.md` files with JSON
+  front-matter from `AGENTMANAGER_AGENT_CONFIG_DIR`; falls back to built-in defaults in
+  `agentManager/agents/defaults.py`.
+- Agent workdir roots must be relative project paths. Reject absolute Windows/POSIX paths,
+  drive-qualified paths, `~`, and parent-directory traversal before passing values to sandbox code.
 
 ## Pull Request Checklist
 

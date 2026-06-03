@@ -20,6 +20,7 @@ from agentManager.engine.scheduler import SchedulerEngine
 from agentManager.engine.state_manager import StateMachine
 from agentManager.memory.engineering_memory import EngineeringMemory
 from agentManager.observability.audit import configure_audit_sinks
+from agentManager.runtime.scheduled_tasks import ScheduledTaskRunner
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ class Runtime:
     checkpoint_manager: Any
     memory_system: Any = None
     engineering_memory: Optional[EngineeringMemory] = None
+    scheduled_task_runner: Optional[ScheduledTaskRunner] = None
 
 
 def _create_state_machine(settings: dict[str, str]) -> StateMachine:
@@ -283,6 +285,7 @@ def create_runtime(
     checkpoint_manager = _create_checkpoint_manager(settings)
     memory_system = _create_memory_system(settings)
     engineering_memory = _create_engineering_memory(settings)
+    scheduled_task_runner = ScheduledTaskRunner()
 
     return Runtime(
         dag_engine=DAGEngine(),
@@ -292,6 +295,7 @@ def create_runtime(
         checkpoint_manager=checkpoint_manager,
         memory_system=memory_system,
         engineering_memory=engineering_memory,
+        scheduled_task_runner=scheduled_task_runner,
     )
 
 
